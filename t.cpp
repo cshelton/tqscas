@@ -1,14 +1,26 @@
 #include <utility>
 #include <stdexcept>
 #include <iostream>
+#include <vector>
+#include <type_traits>
 
 using namespace std;
 
-constexpr int fac(int i) {
-	return i<0 ? throw std::logic_error("i must be non-negative") : (i==0 ? 1 : i*fac(i-1));
-}
+int global=4;
+
+template<typename T>
+struct A {
+	template<typename U=T>
+	typename std::enable_if<std::is_same<U,int>::value,T &>::type get() const { return global; }
+	template<typename U=T>
+	typename std::enable_if<!std::is_same<U,int>::value,bool>::type get() const { return false; }
+
+};
 
 int main(int argc, char **argv) {
-	constexpr int out = fac(4);
-	cout << out << endl;
+	A<int> a;
+	cout << a.get() << endl;
+	A<void> b;
+	cout << b.get() << endl;
+	
 }

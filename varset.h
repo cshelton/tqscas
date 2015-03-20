@@ -5,166 +5,453 @@
 #include <utility>
 #include <stdexcept>
 #include <string.h>
+#include <vector>
+#include "con.h"
+#include <complex>
 
 template<typename T>
-struct var {
-	constexpr var(const char *n) : name(n) {}
-	const char *name;
-};
-
-
-template<typename T1, typename T2, typename E=void>
-struct cov_help
-{
-	typedef void type;
-};
-
-void voidfn() {}
-
-template<typename T1, typename T2>
-struct cov_help<T1,T2,decltype(true ? std::declval<T1>() : std::declval<T2>(),voidfn())> {
-	typedef decltype(true ? std::declval<T1>() : std::declval<T2>()) type;
-};
-
-template<typename ...> struct common_or_void;
-
-template<>
-struct common_or_void<> {
-	typedef void type;
-};
-
-template<typename T>
-struct common_or_void<T> {
-	typedef T type;
-};
-
-
-template<typename T1, typename T2>
-struct common_or_void<T1,T2> {
-	typedef typename cov_help<T1,T2>::type type;
-};
-
-template<typename T1, typename T2, typename... Ts>
-struct common_or_void<T1,T2,Ts...> {
-	typedef typename common_or_void<typename common_or_void<T1,T2>::type,Ts...>::type type;
-};
-
-template<typename... Ts> struct varset {};
-
-template<typename T, typename... Ts>
-struct varset<T,Ts...> {
-	template<typename NT, typename... NTS>
-	constexpr varset(NT &&n, NTS &&... ns)
-		: vname(std::forward<NT>(n)), vnames(std::forward<NTS>(ns)...) {}
-
-	var<T> vname;
-	varset<Ts...> vnames;
-
-	typedef typename common_or_void<T,Ts...>::type commontype;
-};
-
+struct typeT {};
 
 template<typename RETT, typename V>
 struct deduce_ret {
-	typedef typename std::conditional<std::is_same<RETT,void>::value,typename V::commontype,RETT>::type type;
+	typedef typename std::conditional<std::is_same<RETT,anytype>::value,typename V::commontype,RETT>::type type;
+};
+
+template<typename RETT, typename T>
+constexpr typename std::enable_if<std::is_convertible<T,RETT>::value,RETT>::type
+getarg(int i, const T &arg1) {
+	return i<0 ? (throw std::logic_error("could not find variable"), arg1) : arg1;
+}
+
+template<typename RETT, typename T>
+constexpr typename std::enable_if<!std::is_convertible<T,RETT>::value,RETT>::type
+getarg(int i, const T &arg1) {
+	return i<0 ? (throw std::logic_error("could not find variable"), arg1)
+			: (throw std::logic_error("types don't match"), arg1);
+}
+
+template<typename RETT, typename T, typename... Ts>
+constexpr typename std::enable_if<std::is_convertible<T,RETT>::value,RETT>::type
+getarg(int i, const T &arg1, Ts &&... args) {
+	return i<0 ? getarg(i-1,std::forward<Ts>(args)...) : arg1;
+}
+
+template<typename RETT, typename T, typename... Ts>
+constexpr typename std::enable_if<!std::is_convertible<T,RETT>::value,RETT>::type
+getarg(int i, const T &arg1, Ts &&... args) {
+	return getarg(i-1,std::forward<Ts>(args)...);
+}
+
+
+template<typename RETT=anytype, typename V, typename... Ts>
+constexpr typename deduce_ret<RETT,V>::type
+getarg(const char *n, const V &vs, Ts &&...args) {
+	return getarg(vs.template getindex<RETT>(n),std::forward<Ts>(args)...);
+}
+
+template<typename RETT=anytype, typename V, typename VL>
+constexpr typename deduce_ret<RETT,V>::type
+getarg(const char *n, const V &vs, const VL &vl) {
+	return vl.get(vs.template getindex<RETT>(n),typeT<typename deduce_ret<RETT,V>::type>{});
+}
+
+template<typename RETT=anytype, typename V, typename VL>
+typename deduce_ret<RETT,V>::type &
+getarg(const char *n, const V &vs, VL &vl) {
+	return vl.get(vs.template getindex<RETT>(n),typeT<typename deduce_ret<RETT,V>::type>{});
+}
+
+template<typename RETT=anytype, typename V>
+constexpr typename deduce_ret<RETT,V>::type
+getarg(int i, const V &vl) {
+	return vl.get(i,typeT<typename deduce_ret<RETT,V>::type>{});
+}
+
+
+template<typename RETT=anytype, typename V>
+typename deduce_ret<RETT,V>::type &
+getarg(int i, V &vl) {
+	return vl.get(i,typeT<typename deduce_ret<RETT,V>::type>{});
+}
+
+template<typename B>
+struct varbase {
+	B &bthis() { return static_cast<B &>(*this); }
+	constexpr const B &bthis() const { return static_cast<const B &>(*this); }
+
+	template<typename S=anytype>
+	constexpr int operator[](const char *n) const {
+		return bthis().realgetindex(n,typeT<S>{});
+	}
+
+	template<typename S=anytype>
+	constexpr int getindex(const char *n) const {
+		return bthis().realgetindex(n,typeT<S>{});
+	}
+
+	template<typename S=anytype>
+	constexpr int getindex(const char *n, typeT<S>) const {
+		return bthis().realgetindex(n,typeT<S>{});
+	}
+};
+	
+template<typename T>
+struct var : varbase<var<T>> {
+	typedef T commontype;
+
+	constexpr var(const char *n) : name(n) {}
+
+	template<typename S, typename std::enable_if<!std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n, typeT<S>) const {
+		return -1;
+	}
+
+	template<typename S, typename std::enable_if<std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n,typeT<S>) const {
+		return ((n==nullptr && name==nullptr)
+			|| (n!=nullptr && name!=nullptr && !strcmp(n,name))) ? 0 : -1;
+	}
+
+	constexpr int realgetindex(const char *n, typeT<anytype>) const {
+		return ((n==nullptr && name==nullptr)
+			|| (n!=nullptr && name!=nullptr && !strcmp(n,name))) ? 0 : -1;
+	}
+
+	constexpr int nvar() const { return 1; }
+
+
+	const char *name;
+};
+
+template<typename B>
+struct valbase {
+
+	B &bthis() { return (B)(*this); }
+	constexpr const B &bthis() const { return (B)(*this); }
+
+	template<typename RETT=anytype>
+	constexpr decltype(auto) operator[](int i) const { //-> decltype(getarg<RETT>(i,this->bthis())) {
+		return getarg<RETT>(i,bthis());
+	}
+
+	template<typename RETT=anytype>
+	decltype(auto) operator[](int i) { //-> decltype(getarg<RETT>(i,this->bthis())) {
+		return getarg<RETT>(i,bthis());
+	}
+
+};
+
+template<typename T>
+struct varval : public valbase<varval<T>> {
+	typedef T commontype;
+	T val;
+	constexpr varval(T &&t) : val(std::move(t)) {}
+	constexpr varval(const T &t) : val(t) {}
+
+	constexpr const T &get(int i,typeT<T>) const {
+		return i==0 ? val : (throw std::logic_error("could not find value"), val);
+	}
+
+	constexpr const T &get(int i,typeT<anytype>) const {
+		return i==0 ? val : (throw std::logic_error("could not find value"), val);
+	}
+
+	template<typename RETT, typename std::enable_if<std::is_convertible<T,RETT>::value && !std::is_same<T,RETT>::value>::type *E=nullptr>
+	constexpr RETT get(int i,typeT<RETT>) const {
+		return i==0 ? val : (throw std::logic_error("could not find value"), val);
+	}
+
+	T &get(int i,typeT<T>) {
+		return i==0 ? val : (throw std::logic_error("could not find value"), val);
+	}
+
+	T &get(int i,typeT<anytype>) {
+		return i==0 ? val : (throw std::logic_error("could not find value"), val);
+	}
+
+
+	constexpr int nval() const { return 1; }
+};
+template<typename T>
+struct multvar : varbase<multvar<T>> {
+	typedef T commontype;
+
+	multvar(std::initializer_list<const char *> ns) : names(ns) {}
+
+	template<typename S, typename std::enable_if<!std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n,typeT<S>,int i=0) const {
+		return -1;
+	}
+
+	template<typename S, typename std::enable_if<std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n,typeT<S>,int i=0) const {
+		return i>=names.size() ? -1 : 
+				(names[i]==nullptr && n==nullptr) ? i :
+					(n!=nullptr && names[i]!=nullptr && !strcmp(n,names[i])) ? i :
+						realgetindex(n,typeT<anytype>{},i+1);
+	}
+
+	constexpr int realgetindex(const char *n,typeT<anytype>,int i=0) const {
+		return i>=names.size() ? -1 : 
+				(names[i]==nullptr && n==nullptr) ? i :
+					(n!=nullptr && names[i]!=nullptr && !strcmp(n,names[i])) ? i :
+						realgetindex(n,typeT<anytype>{},i+1);
+	}
+
+	const std::vector<const char *> names;
+
+	int nvar() const { return names.size(); }
+};
+
+template<typename T>
+struct multvarval : public std::vector<T>, public valbase<multvarval<T>> {
+	typedef T commontype;
+
+	std::vector<T> val;
+	multvarval(std::initializer_list<T> args) : std::vector<T>(args) {}
+	template<typename S>
+	multvarval(int n, S &&v) : std::vector<T>(n,std::forward<S>(v)) {}
+
+	const T &get(int i,typeT<T>) const {
+		return i<val.size() && i>=0
+			? val[i] : (throw std::logic_error("could not find value"), val[i]);
+	}
+
+	const T &get(int i,typeT<anytype>) const {
+		return i<val.size() && i>=0
+			? val[i] : (throw std::logic_error("could not find value"), val[i]);
+	}
+
+	template<typename RETT, typename std::enable_if<!std::is_same<T,RETT>::value
+					&& std::is_convertible<T,RETT>::value>::type *E=nullptr>
+	RETT get(int i,typeT<RETT>) const {
+		return i<val.size() && i>=0
+			? val[i] : (throw std::logic_error("could not find value"), val[i]);
+	}
+
+	template<typename RETT, typename std::enable_if<!std::is_convertible<T,RETT>::value>::type *E=nullptr>
+	RETT get(int i,typeT<RETT>) const {
+		return (throw std::logic_error("could not find value"), val[i]);
+	}
+
+	T &get(int i,typeT<T>) {
+		return i<val.size() && i>=0
+			? val[i] : (throw std::logic_error("could not find value"), val[i]);
+	}
+
+	T &get(int i,typeT<anytype>) {
+		return i<val.size() && i>=0
+			? val[i] : (throw std::logic_error("could not find value"), val[i]);
+	}
+
+	template<typename RETT, typename std::enable_if<!std::is_same<T,RETT>::value>::type *E=nullptr>
+	RETT &get(int i,typeT<RETT>) {
+		return (throw std::logic_error("could not find value with exact same type"), val[i]);
+	}
+
+	int nval() const { return val.size(); }
 };
 
 
-template<typename RETT=void, typename T, typename S>
-constexpr typename std::enable_if<std::is_convertible<T,typename deduce_ret<RETT,varset<T>>::type>::value,typename deduce_ret<RETT,varset<T>>::type>::type
-getarg(const char *n, const varset<T> &vs, const S &arg1) {
-	return (strcmp(n,vs.vname.name)!=0) ? throw std::logic_error(std::string("could not find variable named ")+n) : arg1;
-}
+template<typename VT1, typename VT2>
+struct varpair : public std::pair<VT1,VT2>, public varbase<varpair<VT1,VT2>> {
+	typedef typename common_or_none<typename VT1::commontype,typename VT2::commontype>::type commontype;
 
-template<typename RETT=void, typename T, typename S>
-constexpr typename std::enable_if<!std::is_convertible<T,typename deduce_ret<RETT,varset<T>>::type>::value,typename deduce_ret<RETT,varset<T>>::type>::type
-getarg(const char *n, const varset<T> &vs, const S &arg1) {
-	return throw std::logic_error(std::string("could not find variable named ")+n);
-}
-
-template<typename RETT=void, typename T, typename S, typename... Ts,typename... Ss>
-constexpr typename std::enable_if<std::is_convertible<T,typename deduce_ret<RETT,varset<T,Ts...>>::type>::value,typename deduce_ret<RETT,varset<T,Ts...>>::type>::type
-getarg(const char *n, const varset<T,Ts...> &vs, const S &arg1, const Ss&... args) {
-	static_assert(sizeof...(Ts)<=sizeof...(Ss),"too few parameters");
-	static_assert(sizeof...(Ts)>=sizeof...(Ss),"too many parameters");
-	return (strcmp(n,vs.vname.name)==0) ? arg1 : getarg<RETT>(n,vs.vnames,args...);
-}
-
-template<typename RETT=void, typename T, typename S, typename... Ts,typename... Ss>
-constexpr typename std::enable_if<!std::is_convertible<T,typename deduce_ret<RETT,varset<T,Ts...>>::type>::value,typename deduce_ret<RETT,varset<T,Ts...>>::type>::type
-getarg(const char *n, const varset<T,Ts...> &vs, const S &arg1, const Ss&... args) {
-	static_assert(sizeof...(Ts)<=sizeof...(Ss),"too few parameters");
-	static_assert(sizeof...(Ts)>=sizeof...(Ss),"too many parameters");
-	return getarg<RETT>(n,vs.vnames,args...);
-}
-
-template<typename ...Ts>
-struct varsetval : varset<Ts...> {
-	template<typename ...Ss>
-	constexpr varsetval(const varset<Ts...> &vars, Ss &&... ss)
-		: varset<Ts...>(vars), vals(std::forward<Ss>(ss)...) {}
-	template<typename ...Ss>
-	constexpr varsetval(varset<Ts...> &&vars, Ss &&... ss)
-		: varset<Ts...>(std::move(vars)), vals(std::forward<Ss>(ss)...) {}
-
-	std::tuple<Ts...> vals;
-};
-
-// integer_sequence not yet defined in g++ 4.8.x
-
-// template<typename... Ts>
-// using ind_seq = std::index_sequence<Ts...>
-
-// template<typename... Ts>
-// using ind_seq_for = std::index_sequence_for<Ts...>
-
-// from stack overflow question # 17424477
-template<typename T, T... I> struct int_sequence {
-	typedef T value_type;
-	static constexpr size_t size() noexcept { return sizeof...(I); }
-};
-
-template<typename T, T N, T... I>
-struct make_helper {
-	typedef typename 
-
-template<typename T, typename N>
-using make_int_seq = typename gen_seq<T,N>::type;
-
-template<std::size_t... Ints>
-using ind_seq = int_seq<std::size_t, Ints...>;
-
-template<std::size_t N>
-using make_ind_seq = make_int_seq<std::size_t, N>;
-
-template<typename... Ts>
-using ind_seq_for = make_ind_seq<sizeof...(T)>;
-
-
-
-template<typename RETT,typename ...Ts>
-struct getarg_help {
-	const varsetval<Ts...> args;
+	template<typename NT, typename... NTS>
+	constexpr varpair(NT &&n, NTS &&... ns) 
+		: std::pair<VT1,VT2>(std::forward<NT>(n),VT2{std::forward<NTS>(ns)...}) {}
 
 	template<typename S>
-	constexpr getarg_help(S &&a) : args(std::forward<S>(a)) {}
-	
-	template<std::size_t ...I>
-	constexpr auto callit(const char *n, ind_seq<I...>) 
-		-> decltype(getarg<RETT>(n,args,std::get<I>(args.vals)...)) {
-		return getarg<RETT>(n,args,std::get<I>(args.vals)...);
+	constexpr int realgetindex(const char *n, typeT<S>) const {
+		return getindexhelp(this->first.template getindex<S>(n,typeT<S>{}),n,typeT<S>{});
 	}
+
+	template<typename S>
+	constexpr int getindexhelp(int find, const char *n, typeT<S>) const {
+		return find<0 ? getindexhelp2(this->second.template getindex<S>(n,typeT<S>{})) : find;
+	}
+
+	constexpr int getindexhelp2(int find) const {
+		return find<0 ? -1 : find+this->first.nvar();
+	}
+
+	constexpr int nvar() const { return this->first.nvar()+this->second.nvar(); }
+};
+
+template<typename RT, typename CT, bool same, typename E=void>
+struct getret {
+	typedef RT type;
+};
+
+template<typename CT>
+struct getret<CT,CT,true,
+		typename std::enable_if<!std::is_same<CT,
+							typename std::add_lvalue_reference<CT>::type>::value>::type> {
+	typedef const CT & type;
+};
+
+template<typename V, typename T, typename E=void>
+struct getable {
+	static constexpr bool value = false;
+};
+
+template<typename T, typename S>
+struct getable<varval<T>,S,typename std::enable_if<std::is_convertible<T,S>::value>::type> {
+	static constexpr bool value = true;
+};
+
+template<typename T, typename S>
+struct getable<multvarval<T>,S,typename std::enable_if<std::is_convertible<T,S>::value>::type> {
+	static constexpr bool value = true;
+};
+
+template<typename V, typename T>
+struct setable {
+	static constexpr bool value = false;
+};
+
+template<typename T>
+struct setable<varval<T>,T> {
+	static constexpr bool value = true;
+};
+
+template<typename T>
+struct setable<multvarval<T>,T> {
+	static constexpr bool value = true;
+};
+
+template<typename V>
+struct allsame {
+	static constexpr bool value = false;
+};
+
+template<typename T>
+struct allsame<var<T>> {
+	static constexpr bool value = true;
+};
+
+template<typename T>
+struct allsame<multvar<T>> {
+	static constexpr bool value = true;
+};
+
+template<typename T>
+struct allsame<varval<T>> {
+	static constexpr bool value = true;
+};
+
+template<typename T>
+struct allsame<multvarval<T>> {
+	static constexpr bool value = true;
+};
 	
-	constexpr auto operator()(const char *n) 
-		-> decltype(callit(n,ind_seq_for<Ts...>{})) {
-		return callit(n,ind_seq_for<Ts...>{});
+
+
+
+template<typename VV1, typename VV2>
+struct varvalpair : public std::pair<VV1,VV2>, public valbase<varvalpair<VV1,VV2>> {
+	typedef typename common_or_none<typename VV1::commontype,typename VV2::commontype>::type commontype;
+	typedef varvalpair<VV1,VV2> thistype;
+
+	template<typename V, typename... Vs>
+	constexpr varvalpair(V &&v, Vs &&...vs) 
+		: std::pair<VV1,VV2>(std::forward<V>(v),VV2{std::forward<Vs>(vs)...}) {}
+
+	template<typename RETT=commontype>
+	constexpr typename std::enable_if<
+					getable<VV1,RETT>::value && getable<VV2,RETT>::value,
+					typename getret<RETT,commontype,allsame<thistype>::value>::type
+								>::type
+	get(int i,typeT<RETT>) const {
+		return i<this->first.nval() ? this->first.get(i,typeT<RETT>{}) : this->second.get(i-this->first.nval(),typeT<RETT>{});
+	}
+
+	template<typename Q=thistype>
+	constexpr typename std::enable_if<!std::is_same<typename Q::commontype,notype>::value,const commontype &>::type
+	get(int i,typeT<anytype>) const {
+		return i<this->first.nval() ? this->first.get(i,typeT<commontype>{}) : this->second.get(i-this->first.nval(),typeT<commontype>{});
+	}
+
+	template<typename RETT=commontype>
+	constexpr typename std::enable_if<
+					getable<VV1,RETT>::value && !getable<VV2,RETT>::value,
+					typename getret<RETT,commontype,allsame<thistype>::value>::type
+						>::type
+	get(int i,typeT<RETT>) const {
+		return i<this->first.nval() ? this->first.get(i,typeT<RETT>{}) : 
+			(throw std::logic_error("could not find value"), this->first.get(i,typeT<RETT>{}));
+	}
+
+	template<typename RETT=commontype>
+	constexpr typename std::enable_if<
+					!getable<VV1,RETT>::value && getable<VV2,RETT>::value,
+					typename getret<RETT,commontype,allsame<thistype>::value>::type
+						>::type
+	get(int i,typeT<RETT>) const {
+		return i<this->first.nval() ? (throw std::logic_error("could not find value"), this->second.get(i-this->first.nval(),typeT<RETT>{})) : this->second.get(i-this->first.nval(),typeT<RETT>{});
+	}
+
+	template<typename Q=thistype>
+	typename std::enable_if<allsame<Q>::value, commontype &>::type
+	get(int i,typeT<anytype>) {
+		return i<this->first.nval() ? this->first.get(i,typeT<commontype>{}) : this->second.get(i-this->first.nval(),typeT<commontype>{});
+	}
+
+	template<typename Q=thistype>
+	typename std::enable_if<allsame<Q>::value, commontype &>::type
+	get(int i,typeT<commontype>) {
+		return i<this->first.nval() ? this->first.get(i,typeT<commontype>{}) : this->second.get(i-this->first.nval(),typeT<commontype>{});
+	}
+
+	template<typename RETT=commontype>
+	typename std::enable_if<
+			!allsame<thistype>::value && std::is_same<RETT,typename VV1::commontype>::value
+			        && !std::is_same<RETT,typename VV2::commontype>::value,
+			RETT &
+			>::type
+	get(int i,typeT<RETT>) {
+		return i<this->first.nval() ? this->first.get(i,typeT<RETT>{}) : 
+				(throw std::logic_error("could not find value"), this->first.get(i,typeT<RETT>{}));
+	}
+
+	template<typename RETT=commontype>
+	typename std::enable_if<
+			!allsame<thistype>::value && !std::is_same<RETT,typename VV1::commontype>::value
+			        &&   std::is_same<RETT,typename VV2::commontype>::value,
+			RETT &
+			>::type
+	get(int i,typeT<RETT>) {
+		return i<this->first.nval() ?
+			(throw std::logic_error("could not find value"), this->second.get(i-this->first.nval(),typeT<commontype>{}))
+			: this->second.get(i-this->first.nval(),typeT<commontype>{});
 	}
 };
 
-template<typename RETT=void, typename ...Ts>
-auto getarg(const char *n, const varsetval<Ts...> &vals)
-	-> decltype(getarg_help<RETT,Ts...>{vals}(n)) {
-	return getarg_help<RETT,Ts...>{vals}(n);
-}
+template<typename V1, typename V2, typename S>
+struct getable<varvalpair<V1,V2>,S,
+		typename std::enable_if<getable<V1,S>::value || getable<V2,S>::value>::type> {
+	static constexpr bool value = true;
+};
+
+template<typename V1, typename V2, typename T>
+struct setable<varvalpair<V1,V2>,T> {
+	static constexpr bool value = setable<V1,T>::value || setable<V2,T>::value;
+};
+
+template<typename V1, typename V2>
+struct allsame<varpair<V1,V2>> {
+	static constexpr bool value = 
+		allsame<V1>::value && allsame<V2>::value &&
+		std::is_same<typename V1::commontype,typename V2::commontype>::value;
+};
+
+template<typename V1, typename V2>
+struct allsame<varvalpair<V1,V2>> {
+	static constexpr bool value = 
+		allsame<V1>::value && allsame<V2>::value &&
+		std::is_same<typename V1::commontype,typename V2::commontype>::value;
+};
+
+
 
 #endif
