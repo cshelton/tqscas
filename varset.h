@@ -94,6 +94,30 @@ struct varbase {
 		return bthis().realgetindex(n,typeT<S>{});
 	}
 };
+
+template<typename T>
+struct unnamedvar : varbase<unnamedvar<T>> {
+	typedef T commontype;
+
+	constexpr unnamedvar() {}
+
+	template<typename S, typename std::enable_if<!std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n, typeT<S>) const {
+		return -1;
+	}
+
+	template<typename S, typename std::enable_if<std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n,typeT<S>) const {
+		return n==nullptr ? 0 : -1;
+	}
+
+	constexpr int realgetindex(const char *n, typeT<anytype>) const {
+		return n==nullptr ? 0 : -1;
+	}
+
+	constexpr int nvar() const { return 1; }
+};
+	
 	
 template<typename T>
 struct var : varbase<var<T>> {
@@ -172,6 +196,32 @@ struct varval : public valbase<varval<T>> {
 
 	constexpr int nval() const { return 1; }
 };
+
+template<typename T>
+struct unnamedmultvar : varbase<unnamedmultvar<T>> {
+	typedef T commontype;
+
+	constexpr unnamedmultvar(int n) : nv(n) {}
+
+	template<typename S, typename std::enable_if<!std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n,typeT<S>,int i=0) const {
+		return -1;
+	}
+
+	template<typename S, typename std::enable_if<std::is_convertible<T,S>::value>::type *E=nullptr>
+	constexpr int realgetindex(const char *n,typeT<S>,int i) const {
+		return n==nullptr && i<nv ? 0 : -1;
+	}
+
+	constexpr int realgetindex(const char *n,typeT<anytype>,int i) const {
+		return n==nullptr && i<nv ? 0 : -1;
+	}
+
+	int nv;
+
+	int nvar() const { return nv; }
+};
+
 template<typename T>
 struct multvar : varbase<multvar<T>> {
 	typedef T commontype;
@@ -277,6 +327,8 @@ struct varpair : public std::pair<VT1,VT2>, public varbase<varpair<VT1,VT2>> {
 
 	constexpr int nvar() const { return this->first.nvar()+this->second.nvar(); }
 };
+
+
 
 template<typename RT, typename CT, bool same, typename E=void>
 struct getret {
@@ -452,6 +504,128 @@ struct allsame<varvalpair<V1,V2>> {
 		std::is_same<typename V1::commontype,typename V2::commontype>::value;
 };
 
+template<typename V>
+struct insttype;
+
+template<typename T>
+struct insttype<var<T>> {
+	typedef varval<T> type;
+};
+
+template<typename T>
+struct insttype<unnamedvar<T>> {
+	typedef varval<T> type;
+};
+
+template<typename T>
+struct insttype<multvar<T>> {
+	typedef multvarval<T> type;
+};
+
+template<typename T>
+struct insttype<unnamedmultvar<T>> {
+	typedef varval<T> type;
+};
+
+template<typename T1,typename T2>
+struct insttype<varpair<T1,T2>> {
+	typedef varvalpair<typename insttype<T1>::type, typename insttype<T2>::type> type;
+};
+
+template<typename T>
+struct insttype<const var<T>> {
+	typedef varval<T> type;
+};
+
+template<typename T>
+struct insttype<const unnamedvar<T>> {
+	typedef varval<T> type;
+};
+
+template<typename T>
+struct insttype<const multvar<T>> {
+	typedef multvarval<T> type;
+};
+
+template<typename T>
+struct insttype<const unnamedmultvar<T>> {
+	typedef varval<T> type;
+};
+
+template<typename T1,typename T2>
+struct insttype<const varpair<T1,T2>> {
+	typedef varvalpair<typename insttype<T1>::type, typename insttype<T2>::type> type;
+};
+
+template<typename T>
+using inst = typename insttype<T>::type;
+
+
+/*
+template<typename V>
+struct inst;
+
+template<typename T>
+struct inst<const var<T>> : public varval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T>
+struct inst<const unnamedvar<T>> : public varval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T>
+struct inst<const multvar<T>> : public multvarval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T>
+struct inst<const unnamedmultvar<T>> : public multvarval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T1,typename T2>
+struct inst<const varpair<T1,T2>> : public varvalpair<inst<T1>,inst<T2>> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : varvalpair<inst<T1>,inst<T2>>(std::forward<Ts>(t)...) {}
+};
+
+
+template<typename T>
+struct inst<var<T>> : public varval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T>
+struct inst<unnamedvar<T>> : public varval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T>
+struct inst<multvar<T>> : public multvarval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T>
+struct inst<unnamedmultvar<T>> : public multvarval<T> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
+};
+
+template<typename T1,typename T2>
+struct inst<varpair<T1,T2>> : public varvalpair<inst<T1>,inst<T2>> {
+	template<typename... Ts>
+	constexpr inst(Ts &&...t) : varvalpair<inst<T1>,inst<T2>>(std::forward<Ts>(t)...) {}
+};
+*/
 
 
 #endif

@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
 	cout << std::is_assignable<string&,double>::value << endl;
 	cout << endl;
 
-	constexpr varval<double> x1(4.4);
+	constexpr inst<decltype(v1)> x1(4.4);
 	cout << getarg("x",v1,x1) << endl;
 
 	cout << "--------------" << endl;
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
 	cout << i2 << endl; 
 	cout << i3 << endl; 
 
-	constexpr varvalpair<varval<double>,varvalpair<varval<int>,varval<double>>> x2(2.3,1,-5.6);
+	constexpr inst<decltype(v2)> x2(2.3,1,-5.6);
 
 	//cout << is_same<int,typename decltype(x2)::commontype>::value << endl;
 	//cout << is_same<notype,typename decltype(x2)::commontype>::value << endl;
@@ -87,8 +87,12 @@ int main(int argc, char **argv) {
 	
 	constexpr varpair<var<double>,varpair<var<A>,var<double>>> v3("a","b","c");
 
-	constexpr varvalpair<varval<double>,varvalpair<varval<A>,varval<double>>> x3(2.3,A{1},-5.6);
+	constexpr inst<decltype(v3)> x3(2.3,A{1},-5.6);
 	constexpr double a3 = getarg<double>("a",v3,x3);
 	cout << a3 << endl;
+
+	cout << "--------------" << endl;
+
+	varpair<multvar<char>,multvar<A>> v4(multvar<char>{"one","two"},multvar<A>{"alpha","beta"});
 	
 }

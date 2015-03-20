@@ -12,14 +12,12 @@ struct mathfn {
 */
 
 
-struct anyvars{};
-
 template<typename RANGE>
 struct constfn {
-	typedef domain anywars;
+	typedef domain anytype;
 	typedef range RANGE;
 
-	:q
+	
 
 	
 
