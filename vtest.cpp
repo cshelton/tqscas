@@ -94,5 +94,42 @@ int main(int argc, char **argv) {
 	cout << "--------------" << endl;
 
 	varpair<multvar<char>,multvar<A>> v4(multvar<char>{"one","two"},multvar<A>{"alpha","beta"});
+
+	auto aa1 = {'A','z'};
+	auto aa2 = {A{3},A{2}};
+	inst<decltype(v4)> x4(aa1,aa2);
 	
+	cout << getarg<char>("one",v4,x4) << endl;
+	//char cc = getarg<char>("alpha",v4,x4);
+	//cout << cc << endl;
+	//cout << x4[v4["two"]] << endl;
+	//
+	cout << "---------------" << endl;
+
+	varpair<multvar<double>,varpair<multvar<double>,var<double>>> v5
+			(multvar<double>{"mercury","venus","earth","mars"},
+				multvar<double>{"jupiter","saturn","uranus","neptune"},"pluto");
+
+	auto bb1 = {3.4, 4.5, 5.6, 6.7};
+	auto bb2 = {10.1, 11.1, 12.1, 13.1};
+	inst<decltype(v5)> x5(bb1,bb2,0.5);
+
+	cout << std::is_same<typename decltype(v5)::commontype,double>::value << endl;	
+	cout << std::is_same<typename deduce_ret<anytype,decltype(v5)>::type,double>::value << endl;	
+	cout << x5[v5["earth"]] << endl;
+
+	cout << "---------------" << endl;
+
+	constexpr inst<unnamedvar<const char *>> x6("hello there");
+	constexpr const char *ss = x6;
+	cout << ss << endl;
+
+	constexpr inst<unnamedvar<double>> x7(5.6);
+	cout << -x7*2.0 << endl;
+
+	cout << "---------------" << endl;
+	constexpr assign<double> x8(4.44);
+	
+	constexpr double a8 = x8;
+	cout << a8 << endl;
 }

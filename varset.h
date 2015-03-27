@@ -14,38 +14,88 @@ struct typeT {};
 
 template<typename RETT, typename V>
 struct deduce_ret {
-	typedef typename std::conditional<std::is_same<RETT,anytype>::value,typename V::commontype,RETT>::type type;
+	typedef RETT type;
 };
+
+template<typename V>
+struct deduce_ret<anytype,V> {
+typedef typename V::commontype type;
+};
+
+//template<typename T, typename E=void> struct tovar;
+
+template<typename T> struct unnamedvar;
+
+template<typename T, typename E=void>
+struct tovar {
+	typedef unnamedvar<T> type;
+};
+
+template<typename T>
+struct tovar<T,typename T::commontype> {
+	typedef T type;
+};
+
+template<typename T>
+using makevar = typename tovar<T>::type; 
+
+template<typename V> struct insttype;
+
+template<typename T>
+using inst = typename insttype<T>::type;
+
+template<typename VV, typename VL>
+struct assigntype {
+
+	typedef VV vartype;
+	typedef VL valtype;
+
+	const VV vars;
+	VL vals;
+
+	template<typename T1, typename T2>
+	constexpr assigntype(T1 &&a1, T2 &&a2) : vars(std::forward<T1>(a1)), vals(std::forward<T2>(a2)) {}
+
+	template<typename T>
+	constexpr assigntype(T &&a) : vars(), vals(std::forward<T>(a)) {}
+
+	constexpr auto operator[](const char *n) const { return vals.getarg(n,vars); }
+	auto operator[](const char *n) { return vals.getarg(n,vars); }
+};
+
+template<typename T>
+using assign = assigntype<makevar<T>,inst<makevar<T>>>;
 
 template<typename RETT, typename T>
 constexpr typename std::enable_if<std::is_convertible<T,RETT>::value,RETT>::type
-getarg(int i, const T &arg1) {
+getarglist(int i, const T &arg1) {
 	return i<0 ? (throw std::logic_error("could not find variable"), arg1) : arg1;
 }
 
 template<typename RETT, typename T>
 constexpr typename std::enable_if<!std::is_convertible<T,RETT>::value,RETT>::type
-getarg(int i, const T &arg1) {
+getarglist(int i, const T &arg1) {
 	return i<0 ? (throw std::logic_error("could not find variable"), arg1)
 			: (throw std::logic_error("types don't match"), arg1);
 }
 
 template<typename RETT, typename T, typename... Ts>
 constexpr typename std::enable_if<std::is_convertible<T,RETT>::value,RETT>::type
-getarg(int i, const T &arg1, Ts &&... args) {
+getarglist(int i, const T &arg1, Ts &&... args) {
 	return i<0 ? getarg(i-1,std::forward<Ts>(args)...) : arg1;
+
 }
 
 template<typename RETT, typename T, typename... Ts>
 constexpr typename std::enable_if<!std::is_convertible<T,RETT>::value,RETT>::type
-getarg(int i, const T &arg1, Ts &&... args) {
+getarglist(int i, const T &arg1, Ts &&... args) {
 	return getarg(i-1,std::forward<Ts>(args)...);
 }
 
 
 template<typename RETT=anytype, typename V, typename... Ts>
 constexpr typename deduce_ret<RETT,V>::type
-getarg(const char *n, const V &vs, Ts &&...args) {
+getarglist(const char *n, const V &vs, Ts &&...args) {
 	return getarg(vs.template getindex<RETT>(n),std::forward<Ts>(args)...);
 }
 
@@ -74,25 +124,53 @@ getarg(int i, V &vl) {
 	return vl.get(i,typeT<typename deduce_ret<RETT,V>::type>{});
 }
 
+template<typename RETT=anytype, typename T>
+constexpr auto getarg(const char *n, const assign<T> &A) {
+	return getarg(n,A.vars,A.vals);
+}
+
+template<typename RETT=anytype, typename T>
+constexpr auto getarg(const char *n, assign<T> &A) {
+	return getarg(n,A.vars,A.vals);
+}
+
 template<typename B>
 struct varbase {
-	B &bthis() { return static_cast<B &>(*this); }
-	constexpr const B &bthis() const { return static_cast<const B &>(*this); }
+	B *bthis() { return static_cast<B *>(this); }
+	constexpr const B *bthis() const { return static_cast<const B *>(this); }
 
 	template<typename S=anytype>
 	constexpr int operator[](const char *n) const {
-		return bthis().realgetindex(n,typeT<S>{});
+		return bthis()->realgetindex(n,typeT<S>{});
 	}
 
 	template<typename S=anytype>
 	constexpr int getindex(const char *n) const {
-		return bthis().realgetindex(n,typeT<S>{});
+		return bthis()->realgetindex(n,typeT<S>{});
 	}
 
 	template<typename S=anytype>
 	constexpr int getindex(const char *n, typeT<S>) const {
-		return bthis().realgetindex(n,typeT<S>{});
+		return bthis()->realgetindex(n,typeT<S>{});
 	}
+};
+
+template<typename B>
+struct valbase {
+
+	B *bthis() { return static_cast<B *>(this); }
+	constexpr const B *bthis() const { return static_cast<const B *>(this); }
+
+	template<typename RETT=anytype>
+	constexpr decltype(auto) operator[](int i) const { //-> decltype(getarg<RETT>(i,this->bthis())) {
+		return getarg<RETT>(i,*bthis());
+	}
+
+	template<typename RETT=anytype>
+	decltype(auto) operator[](int i) { //-> decltype(getarg<RETT>(i,this->bthis())) {
+		return getarg<RETT>(i,*bthis());
+	}
+
 };
 
 template<typename T>
@@ -117,8 +195,7 @@ struct unnamedvar : varbase<unnamedvar<T>> {
 
 	constexpr int nvar() const { return 1; }
 };
-	
-	
+
 template<typename T>
 struct var : varbase<var<T>> {
 	typedef T commontype;
@@ -147,30 +224,55 @@ struct var : varbase<var<T>> {
 	const char *name;
 };
 
-template<typename B>
-struct valbase {
 
-	B &bthis() { return (B)(*this); }
-	constexpr const B &bthis() const { return (B)(*this); }
+template<typename T>
+struct assigntype<var<T>,inst<var<T>>> {
+	typedef var<T> vartype;
+	typedef inst<var<T>> valtype;
+	const vartype vars;
+	valtype vals;
 
-	template<typename RETT=anytype>
-	constexpr decltype(auto) operator[](int i) const { //-> decltype(getarg<RETT>(i,this->bthis())) {
-		return getarg<RETT>(i,bthis());
-	}
+	template<typename T1, typename T2>
+	constexpr assigntype(T1 &&a1, T2 &&a2) : vars(std::forward<T1>(a1)), vals(std::forward<T2>(a2)) {}
 
-	template<typename RETT=anytype>
-	decltype(auto) operator[](int i) { //-> decltype(getarg<RETT>(i,this->bthis())) {
-		return getarg<RETT>(i,bthis());
-	}
+	template<typename A>
+	constexpr assigntype(A &&a) : vars(), vals(std::forward<A>(a)) {}
 
+	constexpr auto operator[](const char *n) const { return vals.getarg(n,vars); }
+	auto operator[](const char *n) { return vals.getarg(n,vars); }
+
+	constexpr operator T() const { return (T)vals; }
 };
+
+template<typename T>
+struct assigntype<unnamedvar<T>,inst<unnamedvar<T>>> {
+	typedef unnamedvar<T> vartype;
+	typedef inst<unnamedvar<T>> valtype;
+	const vartype vars;
+	valtype vals;
+
+	template<typename T1, typename T2>
+	constexpr assigntype(T1 &&a1, T2 &&a2) : vars(std::forward<T1>(a1)), vals(std::forward<T2>(a2)) {}
+
+	template<typename A>
+	constexpr assigntype(A &&a) : vars(), vals(std::forward<A>(a)) {}
+
+	constexpr auto operator[](const char *n) const { return vals.getarg(n,vars); }
+	auto operator[](const char *n) { return vals.getarg(n,vars); }
+
+	constexpr operator T() const { return (T)vals; }
+};
+
 
 template<typename T>
 struct varval : public valbase<varval<T>> {
 	typedef T commontype;
 	T val;
+
 	constexpr varval(T &&t) : val(std::move(t)) {}
 	constexpr varval(const T &t) : val(t) {}
+
+	constexpr operator T() const { return val; }
 
 	constexpr const T &get(int i,typeT<T>) const {
 		return i==0 ? val : (throw std::logic_error("could not find value"), val);
@@ -254,28 +356,29 @@ struct multvar : varbase<multvar<T>> {
 };
 
 template<typename T>
-struct multvarval : public std::vector<T>, public valbase<multvarval<T>> {
+struct multvarval : public valbase<multvarval<T>> {
 	typedef T commontype;
 
 	std::vector<T> val;
-	multvarval(std::initializer_list<T> args) : std::vector<T>(args) {}
+
+	multvarval(std::initializer_list<T> args) : val(args) {}
 	template<typename S>
-	multvarval(int n, S &&v) : std::vector<T>(n,std::forward<S>(v)) {}
+	multvarval(int n, S &&v) : val(n,std::forward<S>(v)) {}
 
 	const T &get(int i,typeT<T>) const {
-		return i<val.size() && i>=0
+		return i<nval() && i>=0
 			? val[i] : (throw std::logic_error("could not find value"), val[i]);
 	}
 
 	const T &get(int i,typeT<anytype>) const {
-		return i<val.size() && i>=0
+		return i<nval() && i>=0
 			? val[i] : (throw std::logic_error("could not find value"), val[i]);
 	}
 
 	template<typename RETT, typename std::enable_if<!std::is_same<T,RETT>::value
 					&& std::is_convertible<T,RETT>::value>::type *E=nullptr>
 	RETT get(int i,typeT<RETT>) const {
-		return i<val.size() && i>=0
+		return i<nval() && i>=0
 			? val[i] : (throw std::logic_error("could not find value"), val[i]);
 	}
 
@@ -285,12 +388,12 @@ struct multvarval : public std::vector<T>, public valbase<multvarval<T>> {
 	}
 
 	T &get(int i,typeT<T>) {
-		return i<val.size() && i>=0
+		return i<nval() && i>=0
 			? val[i] : (throw std::logic_error("could not find value"), val[i]);
 	}
 
 	T &get(int i,typeT<anytype>) {
-		return i<val.size() && i>=0
+		return i<nval() && i>=0
 			? val[i] : (throw std::logic_error("could not find value"), val[i]);
 	}
 
@@ -299,7 +402,7 @@ struct multvarval : public std::vector<T>, public valbase<multvarval<T>> {
 		return (throw std::logic_error("could not find value with exact same type"), val[i]);
 	}
 
-	int nval() const { return val.size(); }
+	inline int nval() const { return val.size(); }
 };
 
 
@@ -443,6 +546,43 @@ struct varvalpair : public std::pair<VV1,VV2>, public valbase<varvalpair<VV1,VV2
 		return i<this->first.nval() ? (throw std::logic_error("could not find value"), this->second.get(i-this->first.nval(),typeT<RETT>{})) : this->second.get(i-this->first.nval(),typeT<RETT>{});
 	}
 
+/*
+	template<typename Q=thistype>
+	constexpr typename std::enable_if<allsame<Q>::value, const commontype &>::type
+	get(int i,typeT<anytype>) const {
+		return i<this->first.nval() ? this->first.get(i,typeT<commontype>{}) : this->second.get(i-this->first.nval(),typeT<commontype>{});
+	}
+
+	template<typename Q=thistype>
+	constexpr typename std::enable_if<allsame<Q>::value, const commontype &>::type
+	get(int i,typeT<commontype>) const {
+		return i<this->first.nval() ? this->first.get(i,typeT<commontype>{}) : this->second.get(i-this->first.nval(),typeT<commontype>{});
+	}
+
+	template<typename RETT=commontype>
+	constexpr typename std::enable_if<
+			!allsame<thistype>::value && std::is_same<RETT,typename VV1::commontype>::value
+			        && !std::is_same<RETT,typename VV2::commontype>::value,
+			const RETT &
+			>::type
+	get(int i,typeT<RETT>) const {
+		return i<this->first.nval() ? this->first.get(i,typeT<RETT>{}) : 
+				(throw std::logic_error("could not find value"), this->first.get(i,typeT<RETT>{}));
+	}
+
+	template<typename RETT=commontype>
+	constexpr typename std::enable_if<
+			!allsame<thistype>::value && !std::is_same<RETT,typename VV1::commontype>::value
+			        &&   std::is_same<RETT,typename VV2::commontype>::value,
+			RETT &
+			>::type
+	get(int i,typeT<RETT>) {
+		return i<this->first.nval() ?
+			(throw std::logic_error("could not find value"), this->second.get(i-this->first.nval(),typeT<RETT>{}))
+			: this->second.get(i-this->first.nval(),typeT<RETT>{});
+	}
+*/
+
 	template<typename Q=thistype>
 	typename std::enable_if<allsame<Q>::value, commontype &>::type
 	get(int i,typeT<anytype>) {
@@ -474,8 +614,8 @@ struct varvalpair : public std::pair<VV1,VV2>, public valbase<varvalpair<VV1,VV2
 			>::type
 	get(int i,typeT<RETT>) {
 		return i<this->first.nval() ?
-			(throw std::logic_error("could not find value"), this->second.get(i-this->first.nval(),typeT<commontype>{}))
-			: this->second.get(i-this->first.nval(),typeT<commontype>{});
+			(throw std::logic_error("could not find value"), this->second.get(i-this->first.nval(),typeT<RETT>{}))
+			: this->second.get(i-this->first.nval(),typeT<RETT>{});
 	}
 };
 
@@ -503,9 +643,6 @@ struct allsame<varvalpair<V1,V2>> {
 		allsame<V1>::value && allsame<V2>::value &&
 		std::is_same<typename V1::commontype,typename V2::commontype>::value;
 };
-
-template<typename V>
-struct insttype;
 
 template<typename T>
 struct insttype<var<T>> {
@@ -557,75 +694,9 @@ struct insttype<const varpair<T1,T2>> {
 	typedef varvalpair<typename insttype<T1>::type, typename insttype<T2>::type> type;
 };
 
-template<typename T>
-using inst = typename insttype<T>::type;
 
 
-/*
-template<typename V>
-struct inst;
 
-template<typename T>
-struct inst<const var<T>> : public varval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T>
-struct inst<const unnamedvar<T>> : public varval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T>
-struct inst<const multvar<T>> : public multvarval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T>
-struct inst<const unnamedmultvar<T>> : public multvarval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T1,typename T2>
-struct inst<const varpair<T1,T2>> : public varvalpair<inst<T1>,inst<T2>> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : varvalpair<inst<T1>,inst<T2>>(std::forward<Ts>(t)...) {}
-};
-
-
-template<typename T>
-struct inst<var<T>> : public varval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T>
-struct inst<unnamedvar<T>> : public varval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : varval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T>
-struct inst<multvar<T>> : public multvarval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T>
-struct inst<unnamedmultvar<T>> : public multvarval<T> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : multvarval<T>(std::forward<Ts>(t)...) {}
-};
-
-template<typename T1,typename T2>
-struct inst<varpair<T1,T2>> : public varvalpair<inst<T1>,inst<T2>> {
-	template<typename... Ts>
-	constexpr inst(Ts &&...t) : varvalpair<inst<T1>,inst<T2>>(std::forward<Ts>(t)...) {}
-};
-*/
 
 
 #endif
