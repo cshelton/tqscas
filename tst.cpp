@@ -1,24 +1,33 @@
 #include "mathfn.h"
-#include "parsefn.h"
+#include "mathfncalc.h"
+#include <functional>
 
 #include <iostream>
 
 using namespace std;
 
+
 int main(int argc, char **argv) {
-	//auto f = 1 + 5.22_fn + -1;
-	//auto f2 = 6_fn;
-	//auto f3 = 7_fn;
+	constexpr auto x = identityfn<double>{};
+	constexpr auto f1 = -(3.5*(x*x+4));
+	constexpr auto f2 = f1+x+3;
+	//constexpr auto f2 = x+3;
 
-	//int ans = ((f+f2)|f3)(3);
-	auto f = x_fn<double>() * 3;
-	//auto v = f(4);
-	//cout << v << endl;
+	constexpr auto f3 = derivative(f2);
+	constexpr auto f4 = integral(f2);
+	constexpr auto f5 = f4 - f4(0);
+
 	
-	//cout << std::is_void<typename decltype(f)::domain>::value << endl;
+	constexpr auto v0 = f2(1);
+	constexpr auto v1 = f3(1);
+	constexpr auto v2 = f4(1);
+	constexpr auto v3 = f5(1);
 
-	auto g = x_fn<double>();
-	auto gg = g^g;
-	for(int i=0;i<5;i++)
-		cout << i << ": " << gg(i) << endl;
+	cout << v0 << endl;
+	cout << v1 << endl;
+	cout << v2 << endl;
+	cout << v3 << endl;
+
+	
 }
+
