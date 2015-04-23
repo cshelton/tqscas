@@ -4,8 +4,8 @@
 #include <utility>
 #include <type_traits>
 #include <cmath>
-#include <tuple>
 #include <stdexcept>
+#include "value_ptr.h"
 
 template<typename T>
 struct makevoid {
@@ -22,40 +22,156 @@ struct is_mathsym<T,typename makevoid<typename std::remove_reference<T>::type::r
 	enum {value = 1 };
 };
 
+template<typename T>
+struct getrange {
+	typedef typename std::remove_cv<typename std::remove_reference<T>::type>::type B;
+	typedef typename B::range type;
+};
+
 template<typename LHS, typename RHS>
 struct assignexpr {
-	static_assert(std::is_same<typename LHS::range, typename RHS::range>::value,"assignment doesn't preserve type");
+	static_assert(std::is_same<typename getrange<LHS>::type, typename getrange<RHS>::type>::value,"assignment doesn't preserve type");
 
-	typedef typename LHS::range range;
+	typedef typename getrange<LHS>::type range;
 
-	LHS lhs;
-	RHS rhs;
+	typename getrange<LHS>::B lhs;
+	typename getrange<RHS>::B rhs;
 	template<typename T1, typename T2>
 	constexpr assignexpr(T1 &&l, T2 &&r) : lhs(std::forward<T1>(l)),
 			rhs(std::forward<T2>(r)) {}
 };
 
+template<typename E1, typename E2, 
+		typename std::enable_if<is_mathsym<E1>::value && is_mathsym<E2>::value>::type *E=nullptr>
+constexpr assignexpr<E1,E2> operator==(E1 &&e1, E2 &&e2) {
+	return assignexpr<
+	typename std::remove_cv<typename std::remove_reference<E1>::type>::type,
+	typename std::remove_cv<typename std::remove_reference<E2>::type>::type>
+		{std::forward<E1>(e1),std::forward<E2>(e2)};
+}
+
+template<typename RANGE>
+struct constsym;
+
+template<typename E1, typename std::enable_if<is_mathsym<E1>::value>::type *E=nullptr>
+constexpr assignexpr<typename std::remove_cv<typename std::remove_reference<E1>::type>::type,constsym<typename getrange<E1>::type>>
+operator==(E1 &&e1, const typename getrange<E1>::type &e2) {
+	return assignexpr<
+	typename std::remove_cv<typename std::remove_reference<E1>::type>::type,
+	constsym<typename getrange<E1>::type>>
+		{std::forward<E1>(e1),constsym<typename getrange<E1>::type>{e2}};
+}
+
+template<typename... As>
+using assigntup = std::tuple<As...>;
+
+
+// std::tie should be constexpr.  However, in clang it is not yet
+// (and g++ is even worse on constexpr methods for tuples)
+// (this one operates a little bit differently, so that it works with below)
+// Cannot replace directly with std::tie at this point!
+template<typename... Ts>
+constexpr auto consttie(Ts &&...ts) noexcept {
+	return std::tuple<typename std::remove_reference<typename std::remove_cv<Ts>::type>::type &...>(ts...);
+}
+
+template<typename E1, typename E2, typename As>
+constexpr auto
+operator&(const assignexpr<E1,E2> &a1, As &&as) {
+	return std::tuple_cat(consttie(a1),std::forward<As>(as));
+}
+
+template<typename E1, typename E2, typename As>
+constexpr auto
+operator&(assignexpr<E1,E2> &&a1, As &&as) {
+	return std::tuple_cat(consttie(std::move(a1)),std::forward<As>(as));
+}
+
+template<typename E1, typename E2, typename As>
+constexpr auto
+operator&(As &&as, const assignexpr<E1,E2> &a1) {
+	return std::tuple_cat(std::forward<As>(as),consttie(a1));
+}
+
+template<typename E1, typename E2, typename As>
+constexpr auto
+operator&(As &&as, assignexpr<E1,E2> &&a1) {
+	return std::tuple_cat(std::forward<As>(as),consttie(std::move(a1)));
+}
+
+template<typename E1, typename E2, typename E3, typename E4>
+constexpr assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>
+operator&(const assignexpr<E1,E2> &a1, const assignexpr<E3,E4> &a2) {
+	return assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>{a1,a2};
+}
+template<typename E1, typename E2, typename E3, typename E4>
+constexpr assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>
+operator&(assignexpr<E1,E2> &&a1, const assignexpr<E3,E4> &a2) {
+	return assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>{std::move(a1),a2};
+}
+template<typename E1, typename E2, typename E3, typename E4>
+constexpr assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>
+operator&(const assignexpr<E1,E2> &a1, assignexpr<E3,E4> &&a2) {
+	return assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>{a1,std::move(a2)};
+}
+template<typename E1, typename E2, typename E3, typename E4>
+constexpr assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>
+operator&(assignexpr<E1,E2> &&a1, assignexpr<E3,E4> &&a2) {
+	return assigntup<assignexpr<E1,E2>,assignexpr<E3,E4>>
+			{std::move(a1),std::move(a2)};
+}
+
 struct typelessassign;
 
+template<std::size_t I> // I is number *left*
+struct applyassigntup {
+	template<typename E, typename... As>
+	constexpr auto exec(const E &e, const assigntup<As...> &a) {
+		return applyassigntup<I-1>{}.exec
+			(e[std::get<std::tuple_size<assigntup<As...>>::value-(I+1)>(a)],a);
+	}
+};
 
+template<>
+struct applyassigntup<0> {
+	template<typename E, typename... As>
+	constexpr auto exec(const E &e, const assigntup<As...> &a) {
+		return e[std::get<std::tuple_size<assigntup<As...>>::value-1>(a)];
+	}
+};
+		
 template<typename DERIV,typename RANGE>
 struct mathexpr {
 	typedef RANGE range;
 
-	const DERIV *deriv() const { return (const DERIV *)(this); }
+	constexpr const DERIV *deriv() const { return (const DERIV *)(this); }
 	DERIV *deriv() { return (const DERIV *)(this); }
 
 	constexpr auto val() const { return deriv()->val(); }
 
 	template<typename V, typename E>
-	constexpr auto operator[](const assignexpr<V,E> &a) const { return deriv()[a]; }
+	constexpr auto operator[](const assignexpr<V,E> &a) const
+		{ return deriv()->dosubst(a); }
 
-	auto operator[](const typelessassign &a) const { return deriv()[a]; }
+	template<typename... As>
+	constexpr auto operator[](const assigntup<As...> &as) const {
+		return applyassigntup<std::tuple_size<assigntup<As...>>::value-1>()
+					.exec(*this,as);
+	}
+
+	auto operator[](const typelessassign &a) const
+		{ return deriv()->dosubst(a); }
 };
+
+template<typename RANGE> struct absctexpr;
+
+template<typename RANGE> struct ctmathexpr;
+
+template<typename IT> struct ctexprimpl;
 
 struct typelessabsexpr {
 	virtual ~typelessabsexpr() = 0;
-	virtual typelessabsctexpr *clone() const = 0;
+	virtual typelessabsexpr *clone() const = 0;
 
 	template<typename R>
 	const absctexpr<R> &withtype() const {
@@ -66,12 +182,12 @@ struct typelessabsexpr {
 	template<typename E>
 	const E &as() const {
 		// exception thrown if not of this type
-		return (dynamic_cast<const ctexprimpl<E> *)(*this)->impl;
+		return dynamic_cast<const ctexprimpl<E> *>(*this)->impl;
 	}
 };
 
-template<RANGE>
-using absctptr<RANGE> = std::value_ptr<absctexpr<RANGE>>;
+template<typename RANGE>
+using absctptr = value_ptr<absctexpr<RANGE>>;
 
 template<typename RANGE>
 struct absctexpr : typelessabsexpr {
@@ -88,11 +204,6 @@ struct absctexpr : typelessabsexpr {
 	}
 };
 
-template<typename RANGE>
-struct ctmathexpr : mathexpr<ctmathexpr<RANGE>,RANGE>;
-
-template<typename IT>
-struct ctexprimpl : public absctexpr<typename IT::range>;
 
 template<typename E>
 absctptr<typename E::range> toabsct(const E &e) {
@@ -115,7 +226,7 @@ absctptr<R> toabsct(ctmathexpr<R> &&e) {
 
 template<typename IT>
 struct ctexprimpl : public absctexpr<typename IT::range> {
-	typedef IT::range range;
+	typedef typename IT::range range;
 	IT impl;
 	template<typename T>
 	constexpr ctexprimpl(T &&t) : impl(std::forward<T>(t)) {}
@@ -136,12 +247,12 @@ struct ctmathexpr : mathexpr<ctmathexpr<RANGE>,RANGE> {
 
 	template<typename T>
 	ctmathexpr(const T &t) : impl{toabsct(t)} {}
-	ctmathexpr(const absctptr<RANGE> &i) impl(i) {}
+	ctmathexpr(const absctptr<RANGE> &i) : impl(i) {}
 
 	constexpr auto val() const { return impl->val(); }
 
-	template<typename A>
-	constexpr auto operator[](const A &a) const
+	template<typename E1, typename E2>
+	constexpr auto dosubst(const assignexpr<E1,E2> &a) const
 		{ return impl->subst(a); }
 };
 
@@ -159,33 +270,40 @@ struct typelessassign {
 
 template<typename RANGE>
 struct constsym : public mathexpr<constsym<RANGE>,RANGE> {
-	range k;
+	RANGE k;
 
-	constexpr constsym(const range &r) : k(r) {}
-	constexpr constsym(range &&r) : k(std::move(r)) {}
+	constexpr constsym(const RANGE &r) : k(r) {}
+	constexpr constsym(RANGE &&r) : k(std::move(r)) {}
 
 	constexpr auto val() const { return k; }
 
 	template<typename V, typename E>
-	constexpr constsym<RANGE> operator[](const assignexpr<V,E> &) const
+	constexpr constsym<RANGE> dosubst(const assignexpr<V,E> &) const
 		{ return *this; }
 
-	constsym<RANGE> operator[](const typelessassign &) const
+	constsym<RANGE> dosubst(const typelessassign &) const
 		{ return *this; }
 };
 
-template<typename DERIV, typename RANGE> {
+template<typename DERIV, typename RANGE>
 struct sym : public mathexpr<DERIV,RANGE> {
 
 	template<typename D, typename R>
 	constexpr bool samesym(const sym<D,R> &s) const {
-		return deriv()->samesym(s);
+		return this->deriv()->samesym(s);
+	}
+
+	constexpr RANGE val() const {
+		return false ? RANGE{0} : throw std::logic_error("symbol has no value");
 	}
 
 };
 
 template<typename RANGE,char ...N>
 struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
+
+	constexpr staticsym() {}
+	constexpr staticsym(const staticsym<RANGE,N...> &) {}
 
 	typedef staticsym<RANGE,N...> mytype;
 	
@@ -197,14 +315,14 @@ struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
 		{ return true; }
 
 	template<typename V, typename E>
-	constexpr mytype operator[](const assignexpr<V,E> &) const {
+	constexpr mytype dosubst(const assignexpr<V,E> &) const
 		{ return *this; }
 
 	template<typename E>
-	constexpr E operator[](const assignexpr<mytype,E> &a) const
+	constexpr E dosubst(const assignexpr<mytype,E> &a) const
 		{ return a.rhs; }
 
-	ctmathexpr<RANGE> operator[](const typelessassign &a) const {
+	ctmathexpr<RANGE> dosubst(const typelessassign &a) const {
 		try {
 			const mytype &l = a.lhs->as<mytype>(); // as a check...
 			return ctmathexpr<RANGE>(a.rhs->withtype<RANGE>());
@@ -218,7 +336,7 @@ struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
 template<typename RANGE>
 struct dynsym : public sym<dynsym<RANGE>,RANGE> { 
 	const char *n;
-	constexpr sym(const char *name) : n(name) {}
+	constexpr dynsym(const char *name) : n(name) {}
 
 	typedef dynsym<RANGE> mytype;
 	
@@ -230,23 +348,23 @@ struct dynsym : public sym<dynsym<RANGE>,RANGE> {
 		{ return n==s.deriv()->n; }
 		
 	template<typename V, typename E>
-	constexpr mytype operator[](const assignexpr<V,E> &) const {
+	constexpr mytype dosubst(const assignexpr<V,E> &) const
 		{ return *this; }
 
 	template<typename E>
-	constexpr ctmathexpr<RANGE> operator[]
-			(const assignexpr<mytype>,mathexpr<E,RANGE>> &a) const {
+	constexpr ctmathexpr<RANGE> dosubst
+			(const assignexpr<mytype,mathexpr<E,RANGE>> &a) const {
 		return (!strcmp(a.lhs.n,n)) ? ctmathexpr<RANGE>(a.rhs)
 				: ctmathexpr<RANGE>(*this);
 	}
 
-	ctmathexpr<RANGE> operator[](const typelessassign &a) const {
+	ctmathexpr<RANGE> dosubst(const typelessassign &a) const {
 		try {
 			const mytype &l = a.lhs->as<mytype>();
 			if (!strcmp(l.n,n))
 				return ctmathexpr<RANGE>(a.rhs->withtype<RANGE>());
 			else return ctmathexpr<RANGE>(*this);
-		} catch(const std::bad_cast &)
+		} catch(const std::bad_cast &) {
 			return ctmathexpr<RANGE>(*this);
 		}
 	}
@@ -279,9 +397,9 @@ constexpr auto doassign(const A &a, const O &o, const std::tuple<Fs...> &fs) {
 
 
 template<typename OP, typename F1, typename... Fs>
-struct symop : public mathexpr<symop<OP,F1,Fs...>,
-		decltype(doval(std::declval<OP>(),std::declval<TT>()))>{
+struct symop : public mathexpr<symop<OP,F1,Fs...>, decltype(doval(std::declval<OP>(),std::declval<std::tuple<F1,Fs...>>()))>{
 	typedef std::tuple<F1,Fs...> TT;
+	typedef mathexpr<symop<OP,F1,Fs...>, decltype(doval(std::declval<OP>(),std::declval<std::tuple<F1,Fs...>>()))> baseT;
 
 	OP op;
 	TT fs;
@@ -289,12 +407,12 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 	constexpr symop(const F1 &f1, const Fs &...fs) : fs(f1,fs...) {}
 	constexpr symop(const OP &o, const F1 &f1, const Fs &...fs) : op(o), fs(f1,fs...) {}
 
-	constexpr range val() const {
+	constexpr typename baseT::range val() const {
 		return doval(op,fs);
 	}
 
-	template<typename A>
-	constexpr auto operator[](const A &a) {
+	template<typename E1, typename E2>
+	constexpr auto dosubst(const assignexpr<E1,E2> &a) const {
 		return doassign(a,op,fs);
 	}
 };
@@ -347,7 +465,7 @@ struct symnegate {
 
 template<typename OP, typename... Fs>
 constexpr auto doop(Fs &&...fs) {
-	return applyop<OP,typename std::remove_reference<Fs>::type...>
+	return symop<OP,typename std::remove_reference<Fs>::type...>
 				(std::forward<Fs>(fs)...);
 }
 
