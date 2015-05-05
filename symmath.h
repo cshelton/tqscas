@@ -18,10 +18,12 @@ template<typename RANGE> struct absctexpr;
 template<typename RANGE> struct ctmathexpr;
 template<typename IT> struct ctexprimpl;
 template<typename DERIV, typename RANGE> struct sym;
+template<typename LHS, typename RHS> struct assignexpr;
+struct typelessassign;
+template<typename A1,typename A2> struct assignpair;
 
 // some TMP constructs to allow detection of math symbols 
 //  and compile-time math symbols (latter for double dispatch)
-
 template<typename T>
 struct makevoid {
 	typedef void type;
@@ -40,7 +42,7 @@ struct is_mathsym<T,typename makevoid<typename std::remove_reference<T>::type::r
 template<typename T, typename R=void>
 struct is_ctmathsym {
 	enum {value = 0 };
-}
+};
 
 template<typename T>
 struct is_ctmathsym<T,typename makevoid<typename std::remove_reference<T>::type::ctrange>::type> {
@@ -51,6 +53,190 @@ template<typename T>
 struct getrange {
 	typedef typename std::remove_cv<typename std::remove_reference<T>::type>::type B;
 	typedef typename B::range type;
+};
+
+
+// mathexpr is the base type for all types that represent
+// a symbolic math expression (and know their type)
+// DERIV = derived type (see CRTP) [not "deriviative"]
+//
+// the derived class must implement
+// * dosubst (on both assignexpr and typelessassign)
+// * doderiv (for any is_mathsym expression)
+template<typename DERIV,typename RANGE>
+struct mathexpr {
+	typedef RANGE range;
+
+	constexpr const DERIV &dclassref() const
+		{ return static_cast<const DERIV &>(*this); }
+	DERIV *dclassref()
+		{ return static_cast<DERIV &>(*this); }
+
+	constexpr auto val() const { return dclassref().val(); }
+
+	template<typename V, typename E>
+	constexpr auto operator[](const assignexpr<V,E> &a) const
+		{ return dclassref().dosubst(a); }
+
+	template<typename A1, typename A2>
+	constexpr auto operator[](const assignpair<A1,A2> &a) const {
+		return (*this)[a.first][a.second];
+	}
+
+	auto operator[](const typelessassign &a) const
+		{ return dclassref().dosubst(a); }
+
+	constexpr int precedence() const { return 0; }
+};
+
+
+// this is the base type for pseudo-expressions that are only
+// known at runtime.  This base doesn't even know its type
+// (but absctexpr below does).
+// Why "pseudo-"???  Well, this is not actually a mathexpr
+// Rather, a pointer to it will be wrapped in a mathexpr
+// (see ctexprimpl below for the derived pseudo-expr
+//  and ctmathexpr for the wrapper into a mathexpr)
+struct typelessabsexpr {
+	typedef void ctrange;
+
+	virtual ~typelessabsexpr() = default;
+	virtual typelessabsexpr *clone() const = 0;
+	virtual void print(std::ostream &os) const = 0;
+
+	template<typename R>
+	const absctexpr<R> &withtype() const {
+		// exception thrown if not of this type
+		return dynamic_cast<const absctexpr<R> &>(*this);
+	}
+
+	template<typename E>
+	const E &as() const {
+		// exception thrown if not of this type
+		return dynamic_cast<const ctexprimpl<E> &>(*this).impl;
+	}
+
+	virtual int precedence() const { return 0; }
+};
+
+// a pointer to an "pseudo" expr with type RANGE
+template<typename RANGE>
+using absctptr = value_ptr<absctexpr<RANGE>,default_clone<absctexpr<RANGE>>>;
+
+// abstract compile-type expression that knows its type
+template<typename RANGE>
+struct absctexpr : typelessabsexpr {
+	typedef RANGE range;
+	typedef RANGE ctrange;
+
+	virtual ~absctexpr<RANGE>() = default;
+
+	virtual absctexpr *clone() const = 0;
+
+	virtual RANGE val() const = 0;
+	virtual absctptr<RANGE> subst(const typelessassign &a) const = 0;
+
+	template<typename V, typename E>
+	absctptr<RANGE> subst(const assignexpr<V,E> &a) {
+		return this->subst(typelessassign{a});
+	}
+
+	virtual void print(std::ostream &os) const = 0;
+
+};
+
+
+// the real pseudo expression.  This has virtual methods and
+// just wraps a mathexpr (type IT)
+// it is *not* a mathexpr.  A pointer to it must be wrapped... see below
+//
+// NOTE: many of the methods have same or similar names to those
+// in a real mathexpr.  However, they are different.  Note that they
+// return absctptr types, and *NOT* mathexpr!
+// These get wrapped correctly by ctmathexpr (see below)
+template<typename IT>
+struct ctexprimpl : public absctexpr<typename IT::range> {
+	typedef typename IT::range range;
+	IT impl;
+	template<typename T>
+	constexpr ctexprimpl(T &&t) : impl(std::forward<T>(t)) {}
+
+	virtual ctexprimpl<IT> *clone() const { return new ctexprimpl<IT>(*this); }
+	
+	virtual range val() const { return impl.val(); }
+
+	virtual absctptr<typename IT::range> subst(const typelessassign &a) const {
+		return toabsct(impl[a]);
+	}
+
+	virtual int precedence() const { return impl.precedence(); }
+
+	virtual void print(std::ostream &os) const { impl.print(os); }
+};
+
+
+// conversions from different expressions, pseudo-expressions
+//  and ptrs to pseduo-expression into absctptr (ptr to pseudo-expression)
+template<typename E>
+absctptr<typename E::range> toabsct(const E &e) {
+	return absctptr<typename E::range>{new ctexprimpl<E>(e)};
+}
+template<typename E>
+absctptr<typename E::range> toabsct(E &&e) {
+	return absctptr<typename E::range>{new ctexprimpl<E>(std::move(e))};
+}
+template<typename R>
+absctptr<R> toabsct(const absctexpr<R> &e) {
+	return absctptr<R>{e.clone()};
+}
+template<typename R>
+absctptr<R> toabsct(absctexpr<R> &&e) {
+	return absctptr<R>{e.clone()}; // better way?  I haven't found one
+}
+template<typename R>
+absctptr<R> toabsct(const ctmathexpr<R> &e) {
+	return e.impl;
+}
+template<typename R>
+absctptr<R> toabsct(ctmathexpr<R> &&e) {
+	return std::move(e.impl);
+}
+template<typename R>
+absctptr<R> toabsct(const absctptr<R> &e) {
+	return e;
+}
+template<typename R>
+absctptr<R> toabsct(absctptr<R> &&e) {
+	return std::move(e);
+}
+
+
+
+		
+// symbolic math expression that knows its type, but nothing else
+// (at compile time -- at runtime, all is known :) )
+// implemented as a pointer to a pseudo-expression, which uses dynamic dispatch
+template<typename RANGE>
+struct ctmathexpr : mathexpr<ctmathexpr<RANGE>,RANGE> {
+	absctptr<RANGE> impl;
+
+	template<typename T,
+		typename std::enable_if<
+					!std::is_same<T,absctptr<RANGE>>::value
+				>::type *EN=nullptr>
+	ctmathexpr(const T &t) : impl{toabsct(t)} {}
+	ctmathexpr(const absctptr<RANGE> &i) : impl(i) {}
+
+	constexpr auto val() const { return impl->val(); }
+
+	template<typename E1, typename E2>
+	constexpr auto dosubst(const assignexpr<E1,E2> &a) const
+		{ return ctmathexpr<RANGE>{impl->subst(a)}; }
+
+	constexpr int precedence() const { return impl->precedence(); }
+
+	void print(std::ostream &os) const { impl->print(os); }
+
 };
 
 // assign expression (which consists just of a pair of symbolic expressions:
@@ -210,196 +396,6 @@ operator&(assignexpr<V1,E1> &&a1, assignexpr<V2,E2> &&a2) {
 	return {std::move(a1),std::move(a2)};
 }
 
-// mathexpr is the base type for all types that represent
-// a symbolic math expression (and know their type)
-// DERIV = derived type (see CRTP) [not "deriviative"]
-//
-// the derived class must implement
-// * dosubst (on both assignexpr and typelessassign)
-// * doderiv (for any is_mathsym expression)
-template<typename DERIV,typename RANGE>
-struct mathexpr {
-	typedef RANGE range;
-
-	constexpr const DERIV &dclassref() const
-		{ return static_cast<const DERIV &>(*this); }
-	DERIV *dclassref()
-		{ return static_cast<DERIV &>(*this); }
-
-	constexpr auto val() const { return dclassref().val(); }
-
-	template<typename V, typename E>
-	constexpr auto operator[](const assignexpr<V,E> &a) const
-		{ return dclassref().dosubst(a); }
-
-	template<typename A1, typename A2>
-	constexpr auto operator[](const assignpair<A1,A2> &a) const {
-		return (*this)[a.first][a.second];
-	}
-
-	auto operator[](const typelessassign &a) const
-		{ return dclassref().dosubst(a); }
-
-	template<typename E, typename
-			std::enable_if<is_mathsym<E>::value>::type *EN=nullptr>
-	constexpr auto d(const E &e) const
-		{ return dclassref().doderiv(e); }
-
-	constexpr int precedence() const { return 0; }
-};
-
-
-// this is the base type for pseudo-expressions that are only
-// known at runtime.  This base doesn't even know its type
-// (but absctexpr below does).
-// Why "pseudo-"???  Well, this is not actually a mathexpr
-// Rather, a pointer to it will be wrapped in a mathexpr
-// (see ctexprimpl below for the derived pseudo-expr
-//  and ctmathexpr for the wrapper into a mathexpr)
-struct typelessabsexpr {
-	virtual ~typelessabsexpr() = default;
-	virtual typelessabsexpr *clone() const = 0;
-
-	template<typename R>
-	const absctexpr<R> &withtype() const {
-		// exception thrown if not of this type
-		return dynamic_cast<const absctexpr<R> &>(*this);
-	}
-
-	template<typename E>
-	const E &as() const {
-		// exception thrown if not of this type
-		return dynamic_cast<const ctexprimpl<E> &>(*this).impl;
-	}
-
-	virtual int precedence() const { return 0; }
-};
-
-// abstract compile-type expression that knows its type
-template<typename RANGE>
-struct absctexpr : typelessabsexpr {
-	typedef RANGE range;
-	virtual ~absctexpr<RANGE>() = default;
-
-	virtual absctexpr *clone() const = 0;
-
-	virtual RANGE val() const = 0;
-	virtual absctptr<RANGE> subst(const typelessassign &a) const = 0;
-
-	template<typename V, typename E>
-	absctptr<RANGE> subst(const assignexpr<V,E> &a) {
-		return this->subst(typelessassign{a});
-	}
-
-};
-
-// a pointer to an "pseudo" expr with type RANGE
-template<typename RANGE>
-using absctptr = value_ptr<absctexpr<RANGE>,default_clone<absctexpr<RANGE>>>;
-
-// the real pseudo expression.  This has virtual methods and
-// just wraps a mathexpr (type IT)
-// it is *not* a mathexpr.  A pointer to it must be wrapped... see below
-//
-// NOTE: many of the methods have same or similar names to those
-// in a real mathexpr.  However, they are different.  Note that they
-// return absctptr types, and *NOT* mathexpr!
-// These get wrapped correctly by ctmathexpr (see below)
-template<typename IT>
-struct ctexprimpl : public absctexpr<typename IT::range> {
-	typedef typename IT::range range;
-	IT impl;
-	template<typename T>
-	constexpr ctexprimpl(T &&t) : impl(std::forward<T>(t)) {}
-
-	virtual ctexprimpl<IT> *clone() const { return new ctexprimpl<IT>(*this); }
-	
-	virtual range val() const { return impl.val(); }
-
-	virtual absctptr<typename IT::range> subst(const typelessassign &a) const {
-		return toabsct(impl[a]);
-	}
-
-	virtual int precedence() const { return impl.precedence(); }
-
-	virtual void print(std::ostream &os) const { impl.print(os); }
-	template<typename D, typename R>
-	virtual auto deriv(const sym<D,R> &x) const
-		{ return toabsct(impl.deriv(x)); } 
-};
-
-
-// conversions from different expressions, pseudo-expressions
-//  and ptrs to pseduo-expression into absctptr (ptr to pseudo-expression)
-template<typename E>
-absctptr<typename E::range> toabsct(const E &e) {
-	return absctptr<typename E::range>{new ctexprimpl<E>(e)};
-}
-template<typename E>
-absctptr<typename E::range> toabsct(E &&e) {
-	return absctptr<typename E::range>{new ctexprimpl<E>(std::move(e))};
-}
-template<typename R>
-absctptr<R> toabsct(const absctexpr<R> &e) {
-	return absctptr<R>{e.clone()};
-}
-template<typename R>
-absctptr<R> toabsct(absctexpr<R> &&e) {
-	return absctptr<R>{e.clone()}; // better way?  I haven't found one
-}
-template<typename R>
-absctptr<R> toabsct(const ctmathexpr<R> &e) {
-	return e.impl;
-}
-template<typename R>
-absctptr<R> toabsct(ctmathexpr<R> &&e) {
-	return std::move(e.impl);
-}
-template<typename R>
-absctptr<R> toabsct(const absctptr<R> &e) {
-	return e;
-}
-template<typename R>
-absctptr<R> toabsct(absctptr<R> &&e) {
-	return std::move(e);
-}
-
-
-
-		
-// symbolic math expression that knows its type, but nothing else
-// (at compile time -- at runtime, all is known :) )
-// implemented as a pointer to a pseudo-expression, which uses dynamic dispatch
-template<typename RANGE>
-struct ctmathexpr : mathexpr<ctmathexpr<RANGE>,RANGE> {
-	absctptr<RANGE> impl;
-
-	template<typename T,
-		typename std::enable_if<
-					!std::is_same<T,absctptr<RANGE>>::value
-				>::type *EN=nullptr>
-	ctmathexpr(const T &t) : impl{toabsct(t)} {}
-	ctmathexpr(const absctptr<RANGE> &i) : impl(i) {}
-
-	constexpr auto val() const { return impl->val(); }
-
-	template<typename E1, typename E2>
-	constexpr auto dosubst(const assignexpr<E1,E2> &a) const
-		{ return ctmathexpr<RANGE>{impl->subst(a)}; }
-
-	template<typename E,
-			typename std::enable_if<is_mathsym<E>::value>::type *EN=nullptr>
-	constexpr auto doderive(const E &e) const
-		{ return ctmathexpr<
-
-	constexpr int precedence() const { return impl->precedence(); }
-
-	void print(std::ostream &os) const { impl->print(os); }
-
-	template<typename 
-	constexpr auto deriv(const sym &x) const { return impl->deriv(x); }
-};
-
 
 //-----------------------------------------------------------
 // SPECIFIC SYMBOLS AND EXPRESSIONS
@@ -423,7 +419,6 @@ struct constsym : public mathexpr<constsym<RANGE>,RANGE> {
 		{ return *this; }
 
 	void print(std::ostream &os) const { os << k; }
-	constexpr constsym deriv(const sym &x) { return constsym<RANGE>{0}; }
 };
 
 // a symbol (like "x"), still abstract as there are a few ways of
@@ -439,9 +434,6 @@ struct sym : public mathexpr<DERIV,RANGE> {
 	constexpr RANGE val() const {
 		return false ? RANGE{0} : throw std::logic_error("symbol has no value");
 	}
-
-	constexpr auto deriv(const sym &s) const
-		{ return this->dclassref().deriv(s); }
 
 };
 
@@ -502,14 +494,6 @@ struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
 	}
 
 	void print(std::ostream &os) const { os << chartostr<N...>().exec(); }
-
-	template<typename D, typename R>
-	constexpr auto deriv(const sym<D,R> &s) const
-		{ return constsym<RANGE>{0}; }
-
-	constexpr auto deriv(const sym<mytype,RANGE> &s) const
-		{ return true; }
-
 
 };
 
