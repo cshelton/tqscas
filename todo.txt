@@ -1,0 +1,15 @@
+To Do:
+
+- operator()
+- add functions:
+	pow, exp, log, sin, cos, tan, etc
+- derivatives (figure out multiple dispatch with templated types)
+	- maybe instead make deriv an operator and use simplify?
+- simplify
+- match (necessary for integration)
+- integration (see Risch algorithm)
+- parse from string?
+
+Much later:
+- optimization
+- distributions

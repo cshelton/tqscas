@@ -7,8 +7,6 @@
 //    or both are defaults)
 // allowed creation of unique_ptr from value_ptr (by copying)
 //
-// cshelton: 2015
-// added dynamic_pointer_cast, static_pointer_cast, and const_pointer_cast
 
 // ======================================================================
 //
