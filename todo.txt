@@ -12,9 +12,12 @@ To Do:
 - derivatives (figure out multiple dispatch with templated types)
 	- maybe instead make deriv an operator and use simplify?
 - simplify
+	- simple version in place
 - match (necessary for integration)
 - integration (see Risch algorithm)
 - parse from string?
+- add matrix support
+- check/add support for std::complex
 
 Much later:
 - optimization

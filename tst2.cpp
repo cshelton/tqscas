@@ -1,20 +1,25 @@
+#include "symmath.h"
+//#include "symmathcalc.h"
+#include <functional>
+
 #include <iostream>
-#include <tuple>
+#include <string>
 
 using namespace std;
 
-int add(int a) { return a; }
-int add(int a1, int a2) { return a1+a2; }
-int add(int a1, int a2, int a3) { return a1+a2+a3; }
-int add(int a1, int a2, int a3, int a4) { return a1+a2+a3+a4; }
-
-int square(int a) { return a*a; }
-
-template<typename... T>
-int addsquares(T... as) {
-	return add(square(as)...);
+template<typename A, typename B>
+void foo(const assignpair<A,B> &) {
+	cout << typeid(A).name() << endl;
+	cout << typeid(B).name() << endl;
 }
 
+
 int main(int argc, char **argv) {
-	cout << addsquares(3,4,5) << endl;
+	constexpr staticsym<double,'x'> x;
+	constexpr staticsym<double,'y'> y;
+	constexpr staticsym<double,'z'> z;
+
+	auto f = x*x;
+	auto df = f.d(x);
+	f.print(cout); cout << "=>"; df.print(cout); cout << endl;
 }

@@ -22,8 +22,8 @@ template<typename IT> struct pseudoexpr;
 template<typename DERIV, typename RANGE> struct sym;
 template<typename LHS, typename RHS> struct assignexpr;
 template<typename A1,typename A2> struct assignpair;
-template<typename T1, typename T2, typename EN=void> struct derivativetype {};
-template<typename T,typename EN=void> struct typebasics {};
+template<typename T,typename EN=void> struct symtypeinfo {};
+template<typename T1, typename T2, typename EN=void> struct symtypepairinfo{};
 
 using typelesspseudoptr = value_ptr<typelesspseudoexpr,default_clone<typelesspseudoexpr>>;
 // a pointer to an "pseudo" expr with type RANGE
@@ -176,7 +176,7 @@ struct abspseudoexpr : typelesspseudoexpr {
 
 	template<typename E>
 	constexpr
-	pseudoptr<typename derivativetype<RANGE,E>::type>
+	pseudoptr<typename symtypepairinfo<RANGE,E>::derivtype>
 	doderiv(const E &e) const
 		{ return this->doderiv(typelesspseudoptr(topseudoptr(e))); }
 
@@ -292,7 +292,7 @@ struct rtmathexpr : mathexpr<rtmathexpr<RANGE>,RANGE> {
 
 	template<typename E>
 	constexpr auto doderiv(const E &x) const 
-		{ return rtmathexpr<typename derivativetype<RANGE,E>::type>
+		{ return rtmathexpr<typename symtypepairinfo<RANGE,E>::derivtype>
 				{impl->doderiv(x)}; }
 };
 
@@ -470,22 +470,22 @@ struct constsym : public mathexpr<DERIV,RANGE> {
 	constexpr DERIV dosubst(const typelessassign &) const
 		{ return this->dclassref(); }
 
-	template<typename E, typename derivativetype<RANGE,E>::type *EN=nullptr>
+	template<typename E, typename symtypepairinfo<RANGE,E>::derivtype *EN=nullptr>
 	constexpr
-	ctconstsymzero<typename derivativetype<RANGE,E>::type>
+	ctconstsymzero<typename symtypepairinfo<RANGE,E>::derivtype>
 	doderiv(const E &) const { return {}; };
 };
 
 // special case of "zero"
 template<typename RANGE>
 struct ctconstsymzero : public constsym<ctconstsymzero<RANGE>,RANGE> {
-	constexpr auto val() const { return typebasics<RANGE>::zero(); }
+	constexpr auto val() const { return symtypeinfo<RANGE>::zero(); }
 };
 
 // special case of "one"
 template<typename RANGE>
 struct ctconstsymidentity : public constsym<ctconstsymidentity<RANGE>,RANGE> {
-	constexpr auto val() const { return typebasics<RANGE>::identity(); }
+	constexpr auto val() const { return symtypeinfo<RANGE>::identity(); }
 };
 
 // at compile time:
@@ -531,9 +531,9 @@ struct sym : public mathexpr<DERIV,RANGE> {
 
 	template<typename E>
 	constexpr
-	rtmathexpr<typename derivativetype<RANGE,E>::type>
+	rtmathexpr<typename symtypepairinfo<RANGE,E>::derivtype>
 	doderiv(const E &e) const { 
-		typedef typename derivativetype<RANGE,E>::type R;
+		typedef typename symtypepairinfo<RANGE,E>::derivtype R;
 		return samesym(e) ? rtmathexpr<R>(ctconstsymidentity<R>())
 						: rtmathexpr<R>(ctconstsymzero<R>());
 	}
@@ -593,17 +593,17 @@ struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
 	constexpr E dosubst(const assignexpr<mytype,E> &a) const
 		{ return a.rhs; }
 
-	template<typename E>
+	template<typename E,
+		typename std::enable_if<!std::is_same<E,mytype>::value>::type *EN=nullptr>
 	constexpr auto doderiv(const E &) const
 		{ return ctconstsymzero<RANGE>{}; }
 
-	template<typename E>
 	constexpr auto doderiv(const mytype &) const
 		{ return ctconstsymidentity<RANGE>{}; }
 
 
 	constexpr RANGE val() const {
-		return false ? typebasics<RANGE>::zero() : throw std::logic_error(std::string("symbol ")+chartostr<N...>().exec()+" is unassigned");
+		return false ? symtypeinfo<RANGE>::zero() : throw std::logic_error(std::string("symbol ")+chartostr<N...>().exec()+" is unassigned");
 	}
 
 	void print(std::ostream &os) const { os << chartostr<N...>().exec(); }
@@ -1101,77 +1101,96 @@ constexpr auto operator+(F1 &&f1) {
 // derivative rules & type information
 
 template<typename T>
-struct typebasics<T,
+struct symtypeinfo<T,
 	typename std::enable_if<std::is_arithmetic<T>::value>::type> {
 	static constexpr T identity() { return {1}; }
 	static constexpr T zero() { return {0}; }
 
+};
+
+template<typename T>
+struct symtypepairinfo<T,T,
+		typename std::enable_if<std::is_floating_point<T>::value>::type> {
+	typedef T derivtype;
 	enum { simplifyadd0 = 1 };
+	enum { simplifymult0 = 1 };
 	enum { simplifymult1 = 1 };
 };
 
 template<typename T>
-struct derivativetype<T,T,
-		typename std::enable_if<std::is_floating_point<T>::value>::type> {
-	typedef T type;
-};
-
-template<typename T>
-struct derivativetype<T,T,
+struct symtypepairinfo<T,T,
 		typename std::enable_if<std::is_integral<T>::value>::type> {
-	typedef T type; // maybe??
+	typedef T derivtype; // maybe??
+	enum { simplifyadd0 = 1 };
+	enum { simplifymult0 = 1 };
+	enum { simplifymult1 = 1 };
 };
 
 template<typename T1,typename E>
-struct derivativetype<T1,E,typename makevoid<typename E::range>::type> {
-	typedef typename derivativetype<T1,typename E::range>::type type;
+struct symtypepairinfo<T1,E,typename makevoid<typename E::range>::type>
+		: public symtypepairinfo<T1,typename E::range> {
 };
 
 template<typename T1,typename T2>
-struct derivativetype<T1,pseudoptr<T2>,void> {
-	typedef typename derivativetype<T1,T2>::type type;
+struct symtypepairinfo<T1,pseudoptr<T2>,void>
+		: public symtypepairinfo<T1,T2> {
 };
 
 // simplify:
 
 template<typename E>
-struct simpstruct {
-	constexpr static E exec(const E &e) { return e; }
-};
-
-template<typename E>
-constexpr auto simplify(const E &e) { return simpstruct<E>::exec(e); }
+constexpr E simplify(const E &e) { return e; }
 
 template<typename OP, typename... Es, std::size_t... I>
 constexpr auto simplify_help(const std::tuple<Es...> &tup, std::index_sequence<I...>) {
-	return doop<OP>(simplify(std::get<I>(tup))...);
+	return simplifyrule(doop<OP>(simplify(std::get<I>(tup))...));
 }
 
 template<typename OP, typename E1, typename... Es>
-struct simpstruct<symop<OP,E1,Es...>> {
-	constexpr static auto
-	exec(const symop<OP,E1,Es...> &e)
-		{ return simplify_help<OP>(e.fs,std::index_sequence_for<E1,Es...>{}); }
-};
+constexpr auto simplify(const symop<OP,E1,Es...> &e)
+	{ return simplify_help<OP>(e.fs,std::index_sequence_for<E1,Es...>{}); }
 
-template<typename T, typename E>
-struct simpstruct<symop<symmultiplies,E,ctconstsymzero<T>>> {
-	constexpr static auto
-	exec(const symop<symmultiplies,E,ctconstsymzero<T>> &)
-		{ return ctconstsymzero<T>{}; }
-};
+// rules:
+// default: do nothing:
+template<typename E>
+constexpr E simplifyrule(const E &e) { return e; }
 
-template<typename T, typename E>
-struct simpstruct<symop<symmultiplies,ctconstsymzero<T>,E>> {
-	constexpr static auto
-	exec(const symop<symmultiplies,ctconstsymzero<T>,E> &)
-		{ return ctconstsymzero<T>{}; }
-};
+// add 0 simplification:
+template<typename T, typename E,
+	typename std::enable_if<symtypepairinfo<T,typename E::range>::simplifyadd0>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symplus,E,ctconstsymzero<T>> &e)
+	{ return std::get<0>(e.fs); }
 
-/*
-template<typename T1,typename T2>
-constexpr auto simplify(const symop<symmultiplies,T1,T2> &)
-	{ return ctconstsymzero<typename T1::range>{}; }
-*/
+template<typename T, typename E,
+	typename std::enable_if<symtypepairinfo<T,typename E::range>::simplifyadd0>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symplus,ctconstsymzero<T>,E> &e)
+	{ return std::get<1>(e.fs); }
+
+template<typename T1, typename T2,
+	typename std::enable_if<symtypepairinfo<T1,T2>::simplifyadd0>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symplus,ctconstsymzero<T1>,ctconstsymzero<T2>> &e)
+	{ return std::get<0>(e.fs); }
+
+// multiply by 0 simplification:
+template<typename T, typename E,
+	typename std::enable_if<symtypepairinfo<T,typename E::range>::simplifymult0>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symmultiplies,E,ctconstsymzero<T>> &)
+	{ return ctconstsymzero<T>{}; }
+
+template<typename T, typename E,
+	typename std::enable_if<symtypepairinfo<T,typename E::range>::simplifymult0>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symmultiplies,ctconstsymzero<T>,E> &)
+	{ return ctconstsymzero<T>{}; }
+
+// multiply by 1 simplification:
+template<typename T, typename E,
+	typename std::enable_if<symtypepairinfo<T,typename E::range>::simplifymult1>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symmultiplies,E,ctconstsymidentity<T>> &e)
+	{ return std::get<0>(e.fs); }
+
+template<typename T, typename E,
+	typename std::enable_if<symtypepairinfo<T,typename E::range>::simplifymult1>::type *EN=nullptr>
+constexpr auto simplifyrule(const symop<symmultiplies,ctconstsymidentity<T>,E> &e)
+	{ return std::get<1>(e.fs); }
 
 #endif
