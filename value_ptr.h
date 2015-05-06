@@ -148,7 +148,13 @@
 							internal::default_action<Element>>::value
 					   && std::is_same<C2,
 							internal::default_action<E2>>::value
-					))
+					)
+				    || (std::is_same<Cloner,
+							default_clone<Element>>::value
+					   && std::is_same<C2,
+							default_clone<E2>>::value
+					)
+					)
 				&& (std::is_same<Deleter,C2>::value
 				    || (std::is_same<Deleter,
 							std::default_delete<Element>>::value

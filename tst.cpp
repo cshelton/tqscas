@@ -70,4 +70,26 @@ int main(int argc, char **argv) {
 	auto b2 = b1 & y==g1;
 	b2.print(cout); cout << endl;
 
+	x.d(y).print(cout); cout << endl;
+	x.d(x).print(cout); cout << endl;
+	(x*x).d(x).print(cout); cout << endl;
+	(3*x).d(y).print(cout); cout << endl;
+	constexpr auto h = 3*x + x*x*4*x/y;
+	h.d(y).print(cout); cout << endl;
+	constexpr auto hdx = h.d(x);
+	hdx.print(cout); cout << endl;
+	cout << "--------" << endl;
+	auto tdx = (3*x).d(x);
+	tdx.print(cout); cout << endl;
+	auto shdx = simplify(tdx);
+	shdx.print(cout); cout << endl;
+	auto ff = ctconstsymzero<double>{} * x;
+	ff.print(cout); cout << endl;
+	simplify(ff).print(cout); cout << endl;
+	simplify(x).print(cout); cout << endl;
+	//cout << typeid(derivativetype<double,decltype(x)>::type) << endl;
+	//cout << typeid(derivativetype<double,double>::type).name() << endl;
+	//cout << typeid(derivativetype<double,mathexpr<decltype(x),double>>::type).name() << endl;
+	
+
 }

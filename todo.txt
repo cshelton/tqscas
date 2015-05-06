@@ -1,6 +1,12 @@
 To Do:
 
 - operator()
+	- auto f = x+y*y;
+	- f[x==3 & y==1].val();
+	- f(x==3 & y==1)
+	
+	- auto g = x*x+x;
+	- g(4)
 - add functions:
 	pow, exp, log, sin, cos, tan, etc
 - derivatives (figure out multiple dispatch with templated types)

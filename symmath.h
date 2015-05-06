@@ -11,7 +11,9 @@
 #include <iostream>
 
 // some predefinition declarations
-template<typename RANGE> struct constsym;
+template<typename RANGE> struct rtconstsym;
+template<typename RANGE> struct ctconstsymzero;
+template<typename RANGE> struct ctconstsymidentity;
 struct typelessassign;
 struct typelesspseudoexpr;
 template<typename RANGE> struct abspseudoexpr;
@@ -19,9 +21,14 @@ template<typename RANGE> struct rtmathexpr;
 template<typename IT> struct pseudoexpr;
 template<typename DERIV, typename RANGE> struct sym;
 template<typename LHS, typename RHS> struct assignexpr;
-struct typelessassign;
 template<typename A1,typename A2> struct assignpair;
-template<typename T1, typename T2> struct derivativetype;
+template<typename T1, typename T2, typename EN=void> struct derivativetype {};
+template<typename T,typename EN=void> struct typebasics {};
+
+using typelesspseudoptr = value_ptr<typelesspseudoexpr,default_clone<typelesspseudoexpr>>;
+// a pointer to an "pseudo" expr with type RANGE
+template<typename RANGE>
+using pseudoptr = value_ptr<abspseudoexpr<RANGE>,default_clone<abspseudoexpr<RANGE>>>;
 
 // some TMP constructs to allow detection of math symbols 
 //  and compile-time math symbols (latter for double dispatch)
@@ -48,6 +55,26 @@ struct is_rtmathsym {
 template<typename T>
 struct is_rtmathsym<T,typename makevoid<typename std::remove_reference<T>::type::rtrange>::type> {
 	enum {value= 1};
+};
+
+template<typename T>
+struct has_deriv {
+private:
+	template<typename S>
+	static constexpr auto check(S*)
+		-> typename std::enable_if<
+				std::is_object<decltype(std::declval<S>().
+						doderiv(std::declval<typelesspseudoptr>()))>
+				::value,
+				std::true_type>::type {
+			return std::true_type{}; }
+
+	template<typename>
+	static constexpr std::false_type check(...) { return std::false_type{}; }
+
+	typedef decltype(check<T>(nullptr)) type;
+public:
+	static constexpr bool value = type::value;
 };
 
 template<typename T>
@@ -97,7 +124,6 @@ struct mathexpr {
 
 };
 
-using typelesspseudoptr = value_ptr<typelesspseudoexpr,default_clone<typelesspseudoexpr>>;
 
 // this is the base type for pseudo-expressions that are only
 // known at runtime.  This base doesn't even know its type
@@ -130,9 +156,6 @@ struct typelesspseudoexpr {
 	virtual typelesspseudoptr doderiv(const typelesspseudoptr &e) const = 0;
 };
 
-// a pointer to an "pseudo" expr with type RANGE
-template<typename RANGE>
-using pseudoptr = value_ptr<abspseudoexpr<RANGE>,default_clone<abspseudoexpr<RANGE>>>;
 
 // abstract compile-type expression that knows its type
 template<typename RANGE>
@@ -152,6 +175,7 @@ struct abspseudoexpr : typelesspseudoexpr {
 		{ return this->subst(typelessassign{a}); }
 
 	template<typename E>
+	constexpr
 	pseudoptr<typename derivativetype<RANGE,E>::type>
 	doderiv(const E &e) const
 		{ return this->doderiv(typelesspseudoptr(topseudoptr(e))); }
@@ -192,8 +216,19 @@ struct pseudoexpr : public abspseudoexpr<typename IT::range> {
 		{ impl.print(os); }
 
 	virtual typelesspseudoptr doderiv(const typelesspseudoptr &e) const 
-		{ throw std::logic_error("not yet implemented"); }
-		//{ return {topseudoptr(impl.doderiv(e))}; }
+		{ return mydoderiv<IT>(e); }
+
+	template<typename T>
+	constexpr
+	typename std::enable_if<has_deriv<T>::value,typelesspseudoptr>::type
+	mydoderiv(const typelesspseudoptr &e) const
+		{ return topseudoptr(impl.doderiv(e)); }
+
+	template<typename T>
+	constexpr
+	typename std::enable_if<!has_deriv<T>::value,typelesspseudoptr>::type
+	mydoderiv(const typelesspseudoptr &e) const
+		{ throw std::logic_error("derivative does not exist for this type"); }
 };
 
 
@@ -256,15 +291,9 @@ struct rtmathexpr : mathexpr<rtmathexpr<RANGE>,RANGE> {
 	void print(std::ostream &os) const { impl->print(os); }
 
 	template<typename E>
-	constexpr auto doctderiv(const E &x) const 
+	constexpr auto doderiv(const E &x) const 
 		{ return rtmathexpr<typename derivativetype<RANGE,E>::type>
-				{impl->doctderiv(x)}; }
-
-	template<typename E>
-	auto dortderiv(const E &x) const 
-		{ return rtmathexpr<typename derivativetype<RANGE,E>::type>
-				{impl->dortderiv(x)}; }
-
+				{impl->doderiv(x)}; }
 };
 
 // assign expression (which consists just of a pair of symbolic expressions:
@@ -291,7 +320,7 @@ struct assignexpr {
 // double-dispatch, but this would require triple dispatch, so we just
 // implement the specifics necessary)
 struct typelessassign {
-	value_ptr<typelesspseudoexpr> lhs,rhs;
+	typelesspseudoptr lhs,rhs;
 	template<typename V, typename E>
 	typelessassign(const assignexpr<V,E> &a) :
 			lhs(topseudoptr(a.lhs)) , rhs(topseudoptr(a.rhs)) {}
@@ -314,12 +343,12 @@ constexpr auto operator==(E1 &&e1, E2 &&e2) {
 
 // use == to build assignexpr (when rhs is a constant)
 template<typename E1, typename std::enable_if<is_mathsym<E1>::value>::type *E=nullptr>
-constexpr assignexpr<typename std::remove_cv<typename std::remove_reference<E1>::type>::type,constsym<typename getrange<E1>::type>>
+constexpr assignexpr<typename std::remove_cv<typename std::remove_reference<E1>::type>::type,rtconstsym<typename getrange<E1>::type>>
 operator==(E1 &&e1, const typename getrange<E1>::type &e2) {
 	return assignexpr<
 	typename std::remove_cv<typename std::remove_reference<E1>::type>::type,
-	constsym<typename getrange<E1>::type>>
-		{std::forward<E1>(e1),constsym<typename getrange<E1>::type>{e2}};
+	rtconstsym<typename getrange<E1>::type>>
+		{std::forward<E1>(e1),rtconstsym<typename getrange<E1>::type>{e2}};
 }
 
 // assignpair represents a tree of assignments
@@ -430,23 +459,50 @@ operator&(assignexpr<V1,E1> &&a1, assignexpr<V2,E2> &&a2) {
 //-----------------------------------------------------------
 
 // a constant
-template<typename RANGE>
-struct constsym : public mathexpr<constsym<RANGE>,RANGE> {
-	RANGE k;
-
-	constexpr constsym(const RANGE &r) : k(r) {}
-	constexpr constsym(RANGE &&r) : k(std::move(r)) {}
-
-	constexpr auto val() const { return k; }
+template<typename DERIV, typename RANGE>
+struct constsym : public mathexpr<DERIV,RANGE> {
+	void print(std::ostream &os) const { os << this->dclassref().val(); }
 
 	template<typename V, typename E>
-	constexpr constsym<RANGE> dosubst(const assignexpr<V,E> &) const
-		{ return *this; }
+	constexpr DERIV dosubst(const assignexpr<V,E> &) const
+		{ return this->dclassref(); }
 
-	constsym<RANGE> dosubst(const typelessassign &) const
-		{ return *this; }
+	constexpr DERIV dosubst(const typelessassign &) const
+		{ return this->dclassref(); }
 
-	void print(std::ostream &os) const { os << k; }
+	template<typename E, typename derivativetype<RANGE,E>::type *EN=nullptr>
+	constexpr
+	ctconstsymzero<typename derivativetype<RANGE,E>::type>
+	doderiv(const E &) const { return {}; };
+};
+
+// special case of "zero"
+template<typename RANGE>
+struct ctconstsymzero : public constsym<ctconstsymzero<RANGE>,RANGE> {
+	constexpr auto val() const { return typebasics<RANGE>::zero(); }
+};
+
+// special case of "one"
+template<typename RANGE>
+struct ctconstsymidentity : public constsym<ctconstsymidentity<RANGE>,RANGE> {
+	constexpr auto val() const { return typebasics<RANGE>::identity(); }
+};
+
+// at compile time:
+template<typename RANGE, RANGE value>
+struct ctconstsym : public constsym<ctconstsym<RANGE,value>,RANGE> {
+	static_assert(std::is_integral<RANGE>::value,"compile-time constants only valid for integral types -- at least until C++17");
+	constexpr auto val() const { return value; }
+};
+
+// at runtime:
+template<typename RANGE>
+struct rtconstsym : public constsym<rtconstsym<RANGE>,RANGE> {
+	constexpr rtconstsym(const RANGE &r) : k(r) {}
+	constexpr rtconstsym(RANGE &&r) : k(std::move(r)) {}
+	constexpr auto val() const { return k; }
+
+	RANGE k;
 };
 
 // a symbol (like "x"), still abstract as there are a few ways of
@@ -459,10 +515,28 @@ struct sym : public mathexpr<DERIV,RANGE> {
 		return this->dclassref().samesym(s);
 	}
 
+	bool samesym(const typelesspseudoptr &s) const {
+		return this->dclassref().samesym(s);
+	}
+
 	constexpr RANGE val() const {
 		return false ? RANGE{0} : throw std::logic_error("symbol has no value");
 	}
 
+	constexpr rtmathexpr<RANGE> dosubst(const typelessassign &a) const {
+		return samesym(a.lhs)
+			? rtmathexpr<RANGE>(a.rhs->withtype<RANGE>())
+			: rtmathexpr<RANGE>(this->dclassref());
+	}
+
+	template<typename E>
+	constexpr
+	rtmathexpr<typename derivativetype<RANGE,E>::type>
+	doderiv(const E &e) const { 
+		typedef typename derivativetype<RANGE,E>::type R;
+		return samesym(e) ? rtmathexpr<R>(ctconstsymidentity<R>())
+						: rtmathexpr<R>(ctconstsymzero<R>());
+	}
 };
 
 // code to convert a variadic template of characters into a string:
@@ -500,6 +574,17 @@ struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
 	constexpr bool samesym(const sym<mytype,RANGE> &s) const
 		{ return true; }
 
+	bool samesym(const typelesspseudoptr &s) const {
+		try {
+			const mytype &l = s->as<mytype>();
+			return true;
+		} catch(const std::bad_cast &) {
+			return false;
+		}
+	}
+
+	using sym<staticsym<RANGE,N...>,RANGE>::dosubst;
+
 	template<typename V, typename E>
 	constexpr mytype dosubst(const assignexpr<V,E> &) const
 		{ return *this; }
@@ -508,17 +593,17 @@ struct staticsym : public sym<staticsym<RANGE,N...>,RANGE> {
 	constexpr E dosubst(const assignexpr<mytype,E> &a) const
 		{ return a.rhs; }
 
-	rtmathexpr<RANGE> dosubst(const typelessassign &a) const {
-		try {
-			const mytype &l = a.lhs->as<mytype>(); // as a check...
-			return rtmathexpr<RANGE>(a.rhs->withtype<RANGE>());
-		} catch(const std::bad_cast &) {
-			return rtmathexpr<RANGE>(*this);
-		}
-	}
+	template<typename E>
+	constexpr auto doderiv(const E &) const
+		{ return ctconstsymzero<RANGE>{}; }
+
+	template<typename E>
+	constexpr auto doderiv(const mytype &) const
+		{ return ctconstsymidentity<RANGE>{}; }
+
 
 	constexpr RANGE val() const {
-		return false ? RANGE{0} : throw std::logic_error(std::string("symbol ")+chartostr<N...>().exec()+" is unassigned");
+		return false ? typebasics<RANGE>::zero() : throw std::logic_error(std::string("symbol ")+chartostr<N...>().exec()+" is unassigned");
 	}
 
 	void print(std::ostream &os) const { os << chartostr<N...>().exec(); }
@@ -543,7 +628,18 @@ struct dynsym : public sym<dynsym<RANGE>,RANGE> {
 
 	constexpr bool samesym(const mytype &s) const
 		{ return n==s.n; }
-		
+
+	bool samesym(const typelesspseudoptr &s) const {
+		try {
+			const mytype &l = s->as<mytype>();
+			return !strcmp(l.n,n);
+		} catch(const std::bad_cast &) {
+			return false;
+		}
+	}
+
+	using sym<dynsym<RANGE>,RANGE>::dosubst;
+
 	template<typename V, typename E,
 		typename std::enable_if<!std::is_same<V,mytype>::value>::type *EN=nullptr>
 	constexpr mytype dosubst(const assignexpr<V,E> &) const
@@ -556,22 +652,23 @@ struct dynsym : public sym<dynsym<RANGE>,RANGE> {
 				: rtmathexpr<RANGE>(*this);
 	}
 
-	rtmathexpr<RANGE> dosubst(const typelessassign &a) const {
-		try {
-			const mytype &l = a.lhs->as<mytype>();
-			if (!strcmp(l.n,n))
-				return rtmathexpr<RANGE>(a.rhs->withtype<RANGE>());
-			else return rtmathexpr<RANGE>(*this);
-		} catch(const std::bad_cast &) {
-			return rtmathexpr<RANGE>(*this);
-		}
-	}
-
 	constexpr RANGE val() const {
 		return false ? RANGE{0} : throw std::logic_error(std::string("symbol ")+n+" is unassigned");
 	}
 
 	void print(std::ostream &os) const { os << n; }
+};
+
+// information for a particular operation on a particular set of types:
+template<typename OP, typename... Ts>
+struct opinfo {
+	enum {commutes = 0 };
+	enum {precedence = 100 };
+	enum {infix = 0 };
+	enum {prefix= 0 };
+	enum {isfunc = 1 };
+	enum {rightassoc = 0 };
+	static constexpr char const *name = "unknownop";
 };
 
 
@@ -598,17 +695,17 @@ constexpr auto doassign(const A &a, const O &o, const std::tuple<Fs...> &fs) {
 	return doassign_help(a,o,fs,std::index_sequence_for<Fs...>{});
 }
 
-// information for a particular operation on a particular set of types:
-template<typename OP, typename... Ts>
-struct opinfo {
-	enum {commutes = 0 };
-	enum {precedence = 100 };
-	enum {infix = 0 };
-	enum {prefix= 0 };
-	enum {isfunc = 1 };
-	enum {rightassoc = 0 };
-	static constexpr char const *name = "unknownop";
-};
+// same for invoking doderiv:
+template<typename O, typename E, typename... Fs, std::size_t... I>
+constexpr auto doopderiv_help(const E &e, const O &o, const std::tuple<Fs...> &fs, 
+			std::index_sequence<I...>) {
+	return opinfo<O,Fs...>::doderiv(e,o,std::get<I>(fs)...);
+}
+template<typename O, typename E, typename... Fs>
+constexpr auto doopderiv(const E &e, const O &o, const std::tuple<Fs...> &fs) {
+	return doopderiv_help(e,o,fs,std::index_sequence_for<Fs...>{});
+}
+
 
 // quick check to see if a type T has a method named "print"
 // that returns void and takes a stream *and* an integer
@@ -712,6 +809,10 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>, decltype(doval(std::declval<O
 		}
 		if (parprec<opinfo<OP,F1,Fs...>::precedence) os << ')';
 	}
+
+	template<typename E>
+	constexpr auto doderiv(const E &e) const
+		{ return doopderiv(e,op,fs); }
 };
 
 
@@ -783,6 +884,11 @@ struct opinfo<symplus,T1,T2> {
 	enum {isfunc = 0 };
 	enum {rightassoc = 0 };
 	static constexpr char const *name = "+";
+
+	template<typename E>
+	constexpr static auto doderiv(const E &e, const symplus &,
+			const T1 &left, const T2 &right)
+		{ return left.d(e) + right.d(e); }
 };
 template<typename T1, typename T2>
 struct opinfo<symminus,T1,T2> {
@@ -793,6 +899,11 @@ struct opinfo<symminus,T1,T2> {
 	enum {isfunc = 0 };
 	enum {rightassoc = 0 };
 	static constexpr char const *name = "-";
+
+	template<typename E>
+	constexpr static auto doderiv(const E &e, const symminus &,
+			const T1 &left, const T2 &right)
+		{ return left.d(e) - right.d(e); }
 };
 template<typename T1, typename T2>
 struct opinfo<symmultiplies,T1,T2> {
@@ -803,6 +914,11 @@ struct opinfo<symmultiplies,T1,T2> {
 	enum {isfunc = 0 };
 	enum {rightassoc = 0 };
 	static constexpr char const *name = "*";
+
+	template<typename E>
+	constexpr static auto doderiv(const E &e, const symmultiplies &,
+			const T1 &left, const T2 &right)
+		{ return left.d(e)*right + left*right.d(e); }
 };
 template<typename T1, typename T2>
 struct opinfo<symdivides,T1,T2> {
@@ -813,6 +929,12 @@ struct opinfo<symdivides,T1,T2> {
 	enum {isfunc = 0 };
 	enum {rightassoc = 0 };
 	static constexpr char const *name = "/";
+
+	template<typename E>
+	constexpr static auto doderiv(const E &e, const symdivides &,
+			const T1 &left, const T2 &right)
+		{ return left.d(e)/right - left*right.d(e)/(right*right); }
+		//{ return (left.d(e)*right - left*right.d(e))/(right*right); }
 };
 template<typename T1, typename T2>
 struct opinfo<symmodulus,T1,T2> {
@@ -833,6 +955,10 @@ struct opinfo<symnegate,T> {
 	enum {isfunc = 0 };
 	enum {rightassoc = 0 };
 	static constexpr char const *name = "-";
+
+	template<typename E>
+	constexpr static auto doderiv(const E &e, const symnegate &, const T &ex)
+		{ return -ex.d(e); } 
 };
 template<typename T>
 struct opinfo<symposite,T> {
@@ -843,6 +969,10 @@ struct opinfo<symposite,T> {
 	enum {isfunc = 0 };
 	enum {rightassoc = 0 };
 	static constexpr char const *name = "+";
+
+	template<typename E>
+	constexpr static auto doderiv(const E &e, const symposite&, const T &ex)
+		{ return +ex.d(e); } 
 };
 
 // a quick helper that "does" an "op"
@@ -866,12 +996,12 @@ template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator+(F1 &&f1, const typename std::remove_reference<F1>::type::range &k) {
 	return doop<symplus>(std::forward<F1>(f1),
-			constsym<typename std::remove_reference<F1>::type::range>(k));
+			rtconstsym<typename std::remove_reference<F1>::type::range>(k));
 }
 template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator+(const typename std::remove_reference<F1>::type::range &k, F1 &&f1) {
-	return doop<symplus>(constsym<typename std::remove_reference<F1>::type::range>(k),
+	return doop<symplus>(rtconstsym<typename std::remove_reference<F1>::type::range>(k),
 			std::forward<F1>(f1));
 }
 
@@ -886,12 +1016,12 @@ template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator-(F1 &&f1, const typename std::remove_reference<F1>::type::range &k) {
 	return doop<symminus>(std::forward<F1>(f1),
-			constsym<typename std::remove_reference<F1>::type::range>(k));
+			rtconstsym<typename std::remove_reference<F1>::type::range>(k));
 }
 template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator-(const typename std::remove_reference<F1>::type::range &k, F1 &&f1) {
-	return doop<symminus>(constsym<typename std::remove_reference<F1>::type::range>(k),
+	return doop<symminus>(rtconstsym<typename std::remove_reference<F1>::type::range>(k),
 			std::forward<F1>(f1));
 }
 
@@ -906,12 +1036,12 @@ template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator*(F1 &&f1, const typename std::remove_reference<F1>::type::range &k) {
 	return doop<symmultiplies>(std::forward<F1>(f1),
-			constsym<typename std::remove_reference<F1>::type::range>(k));
+			rtconstsym<typename std::remove_reference<F1>::type::range>(k));
 }
 template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator*(const typename std::remove_reference<F1>::type::range &k, F1 &&f1) {
-	return doop<symmultiplies>(constsym<typename std::remove_reference<F1>::type::range>(k),
+	return doop<symmultiplies>(rtconstsym<typename std::remove_reference<F1>::type::range>(k),
 			std::forward<F1>(f1));
 }
 
@@ -926,12 +1056,12 @@ template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator/(F1 &&f1, const typename std::remove_reference<F1>::type::range &k) {
 	return doop<symdivides>(std::forward<F1>(f1),
-			constsym<typename std::remove_reference<F1>::type::range>(k));
+			rtconstsym<typename std::remove_reference<F1>::type::range>(k));
 }
 template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator/(const typename std::remove_reference<F1>::type::range &k, F1 &&f1) {
-	return doop<symdivides>(constsym<typename std::remove_reference<F1>::type::range>(k),
+	return doop<symdivides>(rtconstsym<typename std::remove_reference<F1>::type::range>(k),
 			std::forward<F1>(f1));
 }
 
@@ -946,12 +1076,12 @@ template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator%(F1 &&f1, const typename std::remove_reference<F1>::type::range &k) {
 	return doop<symmodulus>(std::forward<F1>(f1),
-			constsym<typename std::remove_reference<F1>::type::range>(k));
+			rtconstsym<typename std::remove_reference<F1>::type::range>(k));
 }
 template<typename F1,
 	typename std::enable_if<is_mathsym<F1>::value>::type *E=nullptr>
 constexpr auto operator%(const typename std::remove_reference<F1>::type::range &k, F1 &&f1) {
-	return doop<symmodulus>(constsym<typename std::remove_reference<F1>::type::range>(k),
+	return doop<symmodulus>(rtconstsym<typename std::remove_reference<F1>::type::range>(k),
 			std::forward<F1>(f1));
 }
 
@@ -968,15 +1098,80 @@ constexpr auto operator+(F1 &&f1) {
 	return doop<symposite>(std::forward<F1>(f1));
 }
 
-// derivative rules
-template<>
-struct derivativetype<double,double> {
-	typedef double type;
+// derivative rules & type information
+
+template<typename T>
+struct typebasics<T,
+	typename std::enable_if<std::is_arithmetic<T>::value>::type> {
+	static constexpr T identity() { return {1}; }
+	static constexpr T zero() { return {0}; }
+
+	enum { simplifyadd0 = 1 };
+	enum { simplifymult1 = 1 };
 };
 
-template<typename T1,typename E, typename T2>
-struct derivativetype<T1,mathexpr<E,T2>> {
+template<typename T>
+struct derivativetype<T,T,
+		typename std::enable_if<std::is_floating_point<T>::value>::type> {
+	typedef T type;
+};
+
+template<typename T>
+struct derivativetype<T,T,
+		typename std::enable_if<std::is_integral<T>::value>::type> {
+	typedef T type; // maybe??
+};
+
+template<typename T1,typename E>
+struct derivativetype<T1,E,typename makevoid<typename E::range>::type> {
+	typedef typename derivativetype<T1,typename E::range>::type type;
+};
+
+template<typename T1,typename T2>
+struct derivativetype<T1,pseudoptr<T2>,void> {
 	typedef typename derivativetype<T1,T2>::type type;
 };
+
+// simplify:
+
+template<typename E>
+struct simpstruct {
+	constexpr static E exec(const E &e) { return e; }
+};
+
+template<typename E>
+constexpr auto simplify(const E &e) { return simpstruct<E>::exec(e); }
+
+template<typename OP, typename... Es, std::size_t... I>
+constexpr auto simplify_help(const std::tuple<Es...> &tup, std::index_sequence<I...>) {
+	return doop<OP>(simplify(std::get<I>(tup))...);
+}
+
+template<typename OP, typename E1, typename... Es>
+struct simpstruct<symop<OP,E1,Es...>> {
+	constexpr static auto
+	exec(const symop<OP,E1,Es...> &e)
+		{ return simplify_help<OP>(e.fs,std::index_sequence_for<E1,Es...>{}); }
+};
+
+template<typename T, typename E>
+struct simpstruct<symop<symmultiplies,E,ctconstsymzero<T>>> {
+	constexpr static auto
+	exec(const symop<symmultiplies,E,ctconstsymzero<T>> &)
+		{ return ctconstsymzero<T>{}; }
+};
+
+template<typename T, typename E>
+struct simpstruct<symop<symmultiplies,ctconstsymzero<T>,E>> {
+	constexpr static auto
+	exec(const symop<symmultiplies,ctconstsymzero<T>,E> &)
+		{ return ctconstsymzero<T>{}; }
+};
+
+/*
+template<typename T1,typename T2>
+constexpr auto simplify(const symop<symmultiplies,T1,T2> &)
+	{ return ctconstsymzero<typename T1::range>{}; }
+*/
 
 #endif
