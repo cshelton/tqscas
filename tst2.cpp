@@ -22,4 +22,7 @@ int main(int argc, char **argv) {
 	auto f = x*x;
 	auto df = f.d(x);
 	f.print(cout); cout << "=>"; df.print(cout); cout << endl;
+	auto g = x+0;
+	auto sg = rtsimplify(g);
+	sg.print(cout); cout << endl;
 }

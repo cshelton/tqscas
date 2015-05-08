@@ -91,6 +91,8 @@ int main(int argc, char **argv) {
 	cout << "simplified: "; simplify(ctconstsymidentity<double>{}*x).print(cout); cout << endl;
 	cout << "simplified: "; simplify(3*x+ctconstsymidentity<double>{}*x).print(cout); cout << endl;
 	cout << "simplified: "; simplify(3*x+1*x).print(cout); cout << endl;
+	cout << "simplified: "; simplify(x+0).print(cout); cout << endl;
+	cout << "rt-simplified: "; rtsimplify(x+0).print(cout); cout << endl;
 	//cout << typeid(derivativetype<double,decltype(x)>::type) << endl;
 	//cout << typeid(derivativetype<double,double>::type).name() << endl;
 	//cout << typeid(derivativetype<double,mathexpr<decltype(x),double>>::type).name() << endl;

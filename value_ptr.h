@@ -7,6 +7,9 @@
 //    or both are defaults)
 // allowed creation of unique_ptr from value_ptr (by copying)
 //
+// cshelton: 2015
+//   added dynamic and static casts
+//
 
 // ======================================================================
 //
@@ -354,5 +357,73 @@
 	template<typename E, typename C, typename D>
 	bool operator>=(value_ptr<E,C,D> const & x, value_ptr<E,C,D> const & y)
 		{ return !(x < y); }
+
+	// ------
+	// casts:
+	template<typename T,
+			typename C1 = internal::default_action<T>,
+			typename D1 = std::default_delete<T>,
+			typename U, typename C2, typename D2>
+	value_ptr<T,C1,D1> const_pointer_cast(const value_ptr<U,C2,D2> &r) {
+		value_ptr<U,C2,D2> tmp(r);
+		return value_ptr<T,C1,D1>{const_cast<T *>(tmp.release())};
+	}
+
+	template<typename T,
+			typename C1 = internal::default_action<T>,
+			typename D1 = std::default_delete<T>,
+			typename U, typename C2, typename D2>
+	value_ptr<T,C1,D1> const_pointer_cast(value_ptr<U,C2,D2> &&r) {
+		value_ptr<U,C2,D2> tmp(std::move(r));
+		return value_ptr<T,C1,D1>{const_cast<T *>(tmp.release())};
+	}
+
+	template<typename T,
+			typename C1 = internal::default_action<T>,
+			typename D1 = std::default_delete<T>,
+			typename U, typename C2, typename D2>
+	value_ptr<T,C1,D1> static_pointer_cast(const value_ptr<U,C2,D2> &r) {
+		value_ptr<U,C2,D2> tmp(r);
+		return value_ptr<T,C1,D1>{static_cast<T *>(tmp.release())};
+	}
+
+	template<typename T,
+			typename C1 = internal::default_action<T>,
+			typename D1 = std::default_delete<T>,
+			typename U, typename C2, typename D2>
+	value_ptr<T,C1,D1> static_pointer_cast(value_ptr<U,C2,D2> &&r) {
+		value_ptr<U,C2,D2> tmp(std::move(r));
+		return value_ptr<T,C1,D1>{static_cast<T *>(tmp.release())};
+	}
+
+	template<typename T,
+			typename C1 = internal::default_action<T>,
+			typename D1 = std::default_delete<T>,
+			typename U, typename C2, typename D2>
+	value_ptr<T,C1,D1> dynamic_pointer_cast(const value_ptr<U,C2,D2> &r) {
+		value_ptr<U,C2,D2> tmp(r);
+		auto p = tmp.release();
+		auto pcast = dynamic_cast<T *>(p);
+		if (pcast) return value_ptr<T,C1,D1>{pcast};
+		else {
+			D2()(p);
+			return value_ptr<T,C1,D1>{nullptr};
+		}
+	}
+
+	template<typename T,
+			typename C1 = internal::default_action<T>,
+			typename D1 = std::default_delete<T>,
+			typename U, typename C2, typename D2>
+	value_ptr<T,C1,D1> dynamic_pointer_cast(value_ptr<U,C2,D2> &&r) {
+		value_ptr<U,C2,D2> tmp(std::move(r));
+		auto p = tmp.release();
+		auto pcast = dynamic_cast<T *>(p);
+		if (pcast) return value_ptr<T,C1,D1>{pcast};
+		else {
+			D2()(p);
+			return value_ptr<T,C1,D1>{nullptr};
+		}
+	}
 
 #endif
