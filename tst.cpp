@@ -50,11 +50,14 @@ int main(int argc, char **argv) {
 	auto a = ((x2==3.0) & (y2==1.0));
 	cout << f[a].val() << endl;
 
-	constexpr dynsym<std::string> s1("s");
-	constexpr dynsym<std::string> s2("s");
-	constexpr dynsym<std::string> s3("t");
+	dynsym<std::string> s1("s");
+	dynsym<std::string> s2("s");
+	dynsym<std::string> s3("t");
 
-	constexpr auto fs = s1+s2+s3;
+	auto fs = s1+s2+s3;
+	fs.print(cout); cout << endl;
+	auto fs2 = fs[s1=="s1 " & s3=="t1"];
+	fs2.print(cout); cout << endl;
 	auto vs = fs[s1=="s1 " & s3=="t1"].val();
 
 	cout << vs << endl;
@@ -97,5 +100,4 @@ int main(int argc, char **argv) {
 	//cout << typeid(derivativetype<double,double>::type).name() << endl;
 	//cout << typeid(derivativetype<double,mathexpr<decltype(x),double>>::type).name() << endl;
 	
-
 }

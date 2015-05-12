@@ -259,7 +259,7 @@
 			typename Rev = typename value_ptr<E2,Cloner,D2>
 					::template can_assign<Element,Cloner,Deleter>,
 			typename IG = typename std::enable_if<Rev::value>>
-		operator std::unique_ptr<E2,D2> () const & noexcept {
+		explicit operator std::unique_ptr<E2,D2> () const & noexcept {
 			value_ptr tmp(*this);
 			return uptr(tmp.release());
 		}
@@ -267,14 +267,14 @@
 			typename Rev = typename value_ptr<E2,Cloner,D2>
 					::template can_assign<Element,Cloner,Deleter>,
 			typename IG = typename std::enable_if<Rev::value>>
-		operator std::unique_ptr<E2,D2> () && noexcept {
+		explicit operator std::unique_ptr<E2,D2> () && noexcept {
 			return uptr(release());
 		}
 
 		template<typename E2, typename D2,
 			typename IG
 				= typename std::enable_if<can_assign<E2,Cloner,D2>::value>::type>
-		value_ptr(std::unique_ptr<E2,D2> other)
+		explicit value_ptr(std::unique_ptr<E2,D2> other)
 				noexcept : p(other.release()) {
 		}
 		template<typename E2, typename D2,

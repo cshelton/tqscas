@@ -19,10 +19,20 @@ int main(int argc, char **argv) {
 	constexpr staticsym<double,'y'> y;
 	constexpr staticsym<double,'z'> z;
 
-	auto f = x*x;
+	constexpr auto ftest = rtconstsym<double>(3);
+	constexpr auto vtest = ftest.val();
+	cout << vtest << endl;
+
+	constexpr auto f = x*x;
 	auto df = f.d(x);
 	f.print(cout); cout << "=>"; df.print(cout); cout << endl;
 	auto g = x+0;
 	auto sg = rtsimplify(g);
 	sg.print(cout); cout << endl;
+	rtconstsym<double> dconst(3.0);
+	cout << is_constsym<decltype(dconst)>::value << endl;
+	cout << is_mathsym<decltype(dconst)>::value << endl;
+	cout << is_mathsymnew<decltype(dconst)>::value << endl;
+	cout << is_mathsym<decltype(x)>::value << endl;
+	cout << is_mathsymnew<decltype(x)>::value << endl;
 }
