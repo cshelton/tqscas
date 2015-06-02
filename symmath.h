@@ -142,20 +142,47 @@ struct mathexpr : public absmathexpr {
 	DERIV *dclassref()
 		{ return static_cast<DERIV &>(*this); }
 
-	constexpr auto val() const { return dclassref().doval(); }
+	struct getval {
+		template<typename E>
+		constexpr auto operator()(E &&e) const
+			{ return std::forward<E>(e).doval(); }
+	};
+	template<typename V, typename E>
+	struct getsubst {
+		const V &v; const E &e;
+		constexpr getsubst(const V &vv, const E &ee) : v(vv), e(ee) {}
+		template<typename EX>
+		constexpr auto operator()(EX &&ex) const
+			{ return std::forward<EX>(ex).dosubst(v,e); }
+	};
+	struct recomb  {
+		template<typename OP, typename... Ts>
+		constexpr auto operator()(OP &&op, Ts &&...ts) const
+			{ return std::forward<OP>(op)(std::forward<Ts>(ts)...); }
+	};
+	constexpr auto val() const { return fold(recomb{},getval{}); }
+
+	// derivative 
+	template<typename E,
+		typename std::enable_if<is_mathsym<E>::value>::type *EN=nullptr>
+	constexpr auto d(const E &x) const
+		{ return dclassref().doderiv(x); }
+
 	constexpr auto isconst() const { return dclassref().doisconst(); }
 
-	template<typename F>
-	constexpr auto transform(F f) const
-			{ return dclassref().dotransform(f); }
+	template<typename COMBF, typename LEAFF>
+	constexpr auto fold(COMBF &&cf, LEAFF &&lf) const {
+		return dclassref().dofold(std::forward<COMBF>(cf),
+							std::forward<LEAFF>(lf));
+	}
 
 	template<typename V, typename E>
 	constexpr auto operator[](const assignexpr<V,E> &a) const
-		{ return dclassref().dosubst(a.lhs,a.rhs); }
+		{ return dclassref().splitassign(a.lhs,a.rhs); }
 
 	template<typename V, typename E>
 	constexpr auto splitassign(const V &v, const E &e) const
-		{ return dclassref().dosubst(v,e); }
+		{ return fold(recomb{},getsubst<V,E>{v,e}); }
 
 	template<typename A1, typename A2>
 	constexpr auto operator[](const assignpair<A1,A2> &a) const {
@@ -168,17 +195,12 @@ struct mathexpr : public absmathexpr {
 	template<typename OP2>
 	constexpr bool doisconst() const { return false; }
 
-	// derivative 
-	template<typename E,
-		typename std::enable_if<is_mathsym<E>::value>::type *EN=nullptr>
-	constexpr auto d(const E &x) const
-		{ return dclassref().doderiv(x); }
 
 	constexpr const auto name() const { return dclassref().doname(); }
 	constexpr const auto doname() const { return ""; }
-	template<typename F>
-	constexpr auto dotransform(F f) const
-			{ return f(dclassref()); }
+	template<typename COMBF, typename LEAFF> // default to "leaf"
+	constexpr auto dofold(COMBF &&cf, LEAFF &&lf) const
+			{ return std::forward<LEAFF>(lf)(dclassref()); }
 	void print(std::ostream &os, int prec=1000) const { return dclassref().doprint(os,prec); }
 	
 };
@@ -201,7 +223,7 @@ struct commonrange<T> {
 
 #define UNIONBASE : public mathexpr<cu_impl<void,Ts...>, typename commonrange<Ts...>::type>
 
-DEFUNION(mathexprunion,UNIONBASE,dosubst,doderiv,doval,doisconst,doname,doprecedence,doprint)
+DEFUNION(mathexprunion,UNIONBASE,dosubst,dofold,doderiv,doval,doisconst,doname,doprecedence,doprint)
 
 template<typename T>
 struct getrange {
@@ -623,14 +645,15 @@ struct opinfo {
 // a method to invoke val using arguments from a tuple:
 /* based on stackoverflow 7858817, answer by Walter */
 template<typename F1, typename F2, typename... Fs, std::size_t... I>
-constexpr auto doopfn_help(F1 f1, F2 f2, const std::tuple<Fs...> &fs, 
+constexpr auto doopfn_help(F1 &&f1, F2 &&f2, const std::tuple<Fs...> &fs, 
 			std::index_sequence<I...>) {
-	return f1(f2(std::get<I>(fs))...);
-}
+	return std::forward<F1>(f1)(
+			std::forward<F2>(f2)(std::get<I>(fs))...); }
 // computes f1(f2(fs)...) (if fs were "expanded as a parameter pack")
 template<typename F1, typename F2, typename... Fs>
-constexpr auto doopfn(F1 f1, F2 f2, const std::tuple<Fs...> &fs) {
-	return doopfn_help(f1,f2,fs,std::index_sequence_for<Fs...>{});
+constexpr auto doopfn(F1 &&f1, F2 &&f2, const std::tuple<Fs...> &fs) {
+	return doopfn_help(std::forward<F1>(f1),
+			std::forward<F2>(f2),fs,std::index_sequence_for<Fs...>{});
 }
 
 
@@ -663,34 +686,6 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 	// don't support constexpr yet, so here are simple lambdas
 	// written out in "long hand"
 	// begin silliness
-	struct redoop {
-		const symop<OP,F1,Fs...> &t;
-		constexpr redoop(const symop<OP,F1,Fs...> &th) :t(th) {}
-		template<typename... Ts>
-		constexpr auto operator()(Ts &&...ts) {
-			return symop<OP,
-				typename std::decay<Ts>::type...>{std::forward<Ts>(ts)...};
-		}
-	};
-	template<typename V, typename E>
-	struct subassign {
-		const V &v; const E &e;
-		constexpr subassign(const V &vv, const E &ee) : v(vv), e(ee) {}
-		template<typename T>
-		constexpr auto operator()(T &&x) { return x.splitassign(v,e); }
-	};
-	struct subval {
-		constexpr subval() {}
-		template<typename T>
-		constexpr auto operator()(T &&x) { return x.val(); }
-	};
-	struct doop {
-		const symop<OP,F1,Fs...> &t;
-		constexpr doop(const symop<OP,F1,Fs...> &tt) : t(tt) {}
-		template<typename... Ts>
-		constexpr auto operator()(Ts &&...ts)
-			{ return t.op(std::forward<Ts>(ts)...); }
-	};
 	template<typename E>
 	struct opder {
 		const E &e;
@@ -706,29 +701,30 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 	struct idfn {
 		constexpr idfn() {}
 		template<typename T>
-		constexpr auto operator()(T &&t) { return std::forward<T>(t); }
+		constexpr auto operator()(T &&t) const { return std::forward<T>(t); }
 	};
 	template<typename F>
 	struct applyfn {
 		const F &f;
+		const OP &op;
 		template<typename FF>
-		constexpr applyfn(FF &&ff) : f(std::forward<FF>(ff)) {}
+		constexpr applyfn(const OP &oopp, FF &&ff)
+				: op(oopp), f(std::forward<FF>(ff)) {}
 		template<typename... Ts>
-		constexpr auto operator()(Ts &&...ts)
-			{ return f(symop<OP,F1,Fs...>{std::forward<Ts>(ts)...}); }
+		constexpr auto operator()(Ts &&...ts) const
+			{ return f(op,std::forward<Ts>(ts)...); }
 	};
+	template<typename CF, typename LF>
+	struct recurfold {
+		const CF &cf;
+		const LF &lf;
+		constexpr recurfold(const CF &ccf, const LF &llf) : cf(ccf), lf(llf) {}
+		template<typename T>
+		constexpr auto operator()(T &&t) const
+			{ return std::forward<T>(t).fold(cf,lf); }
+	};
+		
 	// end silliness
-
-	template<typename V, typename E>
-	constexpr auto dosubst(const V &v, const E &e) const {
-			return doopfn(redoop{*this},subassign<V,E>{v,e},
-			//[this](auto... param) {
-			//	return symop<OP,decltype(param)...>{this->op,param...};
-			//},
-			//[v,e](auto x) {
-			//	return x.splitassign(v,e);
-			//},
-			fs); }
 
 	template<typename E>
 	constexpr auto doderiv(const E &e) const
@@ -741,16 +737,13 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 			//},
 			fs); }
 
-	constexpr typename getrange<baseT>::type doval() const {
-		return doopfn(doop{*this},subval{},
-			//[this](auto... param) { return this->op(param...); },
-			//[](auto x) { return x.val(); },
-			fs);
-	}
-
-	template<typename F>
-	constexpr auto dotransform(F f, bool postorder=true) const {
-		return doopfn(applyfn<F>{f},f,fs);
+	template<typename COMBF, typename LEAFF>
+	constexpr auto dofold(COMBF &&cf, LEAFF &&lf) const {
+		return doopfn(applyfn<typename std::decay<COMBF>::type>
+							{op,cf},
+				recurfold<typename std::decay<COMBF>::type,
+						typename std::decay<LEAFF>::type>
+					{cf,std::forward<LEAFF>(lf)},fs);
 	}
 
 

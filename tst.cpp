@@ -13,6 +13,17 @@ void foo(const assignpair<A,B> &) {
 	cout << typeid(B).name() << endl;
 }
 
+template<typename E>
+void showsimp(const E &e) {
+	auto f = simplify(e);
+	e.print(cout); cout << " ====> "; f.print(cout); cout << endl;
+}
+
+template<typename E>
+void showsimprt(const E &e) {
+	auto f = simplify(e);
+	e.print(cout); cout << " =rt=> "; f.print(cout); cout << endl;
+}
 
 int main(int argc, char **argv) {
 	constexpr staticsym<double,'x'> x;
@@ -80,24 +91,31 @@ int main(int argc, char **argv) {
 	constexpr auto h = 3*x + x*x*4*x/y;
 	h.d(y).print(cout); cout << endl;
 	constexpr auto hdx = h.d(x);
-	hdx.print(cout); cout << endl;
-	cout << "simplified: "; simplify(hdx).print(cout); cout << endl;
+	showsimp(hdx);
 	cout << "--------" << endl;
 	constexpr auto tdx = (3*x).d(x);
-	tdx.print(cout); cout << endl;
-	constexpr auto shdx = simplify(tdx);
-	cout << "simplified: "; shdx.print(cout); cout << endl;
+	showsimp(tdx);
 	auto ff = ctconstsymzero<double>{} * x;
-	ff.print(cout); cout << endl;
-	cout << "simplified: "; simplify(ff).print(cout); cout << endl;
-	cout << "simplified: "; simplify(x).print(cout); cout << endl;
-	cout << "simplified: "; simplify(ctconstsymidentity<double>{}*x).print(cout); cout << endl;
-	cout << "simplified: "; simplify(3*x+ctconstsymidentity<double>{}*x).print(cout); cout << endl;
-	cout << "simplified: "; simplify(3*x+1*x).print(cout); cout << endl;
-	cout << "simplified: "; simplify(x+0).print(cout); cout << endl;
-	cout << "rt-simplified: "; rtsimplify(x+0).print(cout); cout << endl;
-	//cout << typeid(derivativetype<double,decltype(x)>::type) << endl;
-	//cout << typeid(derivativetype<double,double>::type).name() << endl;
-	//cout << typeid(derivativetype<double,mathexpr<decltype(x),double>>::type).name() << endl;
-	
+	showsimp(ff);
+	showsimp(x);
+	showsimp(ctconstsymidentity<double>{}*x);
+	showsimp(3*x+ctconstsymidentity<double>{}*x);
+	showsimp(3*x+1*x);
+	showsimp(x+0);
+	showsimprt(x+0);
+	auto i1 = ctconstsym<int,1>{};
+	auto i0 = ctconstsym<int,0>{};
+	showsimp(x+i1);
+	showsimp(x+i0);
+	showsimp(x*i1);
+	showsimp(i0*i0);
+	cout << typeid(i0*i0).name() << endl;
+	showsimp(x*i1+i0*i0+i0*i1+x*(i1+i0)+i0*x);
+	showsimprt(x*i1+i0*i0+i0*i1+x*(i1+i0)+i0*x);
+	typedef simplifykeeponly<symmultiplies,decltype(x),decltype(i1)> t1;
+	typedef simplifykeeponly<symmultiplies,decltype(i1),decltype(x)> t2;
+	cout << t1::isadd << ' ' << t1::ismult << ' ' << t1::E1is0 << ' ' << t1::E1is1 << ' ' << t1::E2is0 << ' ' << t1::E2is1 << ' ' << t1::value << endl;
+	cout << t2::isadd << ' ' << t2::ismult << ' ' << t2::E1is0 << ' ' << t2::E1is1 << ' ' << t2::E2is0 << ' ' << t2::E2is1 << ' ' << t2::value << endl;
+	cout << symtypepairinfo<decltype(x)::range,decltype(i0)::range>::simplifymult0 << iszero<decltype(x)>::value << iszero<decltype(i0)>::value << endl;
+
 }
