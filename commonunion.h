@@ -59,25 +59,64 @@ namespace commonunion {
 	};
 
 }
-#define WRITEIMPL(fname) \
+
+#define RTEXPRSELECT(uname,cond,restrue,resfalse) \
+     (cond) ? uname<typename std::decay<decltype(restrue)>::type, \
+                              typename std::decay<decltype(resfalse)>::type>{restrue} \
+          : uname<typename std::decay<decltype(restrue)>::type, \
+                              typename std::decay<decltype(resfalse)>::type>{resfalse}
+
+#define WRITEIMPLN1(fname) \
 		template<typename... Rs> \
 		constexpr auto fname##_impl(const itype &i, Rs &&...rs) const \
-			noexcept(noexcept(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)) \
-				&& noexcept(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...))) \
+			noexcept(noexcept((i&1)==0 ? \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)): \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...)))) \
 		{ \
-			return (i&1)==0 ? t1.fname##_impl(i>>1,std::forward<Rs>(rs)...) : \
-					t2.fname##_impl(i>>1,std::forward<Rs>(rs)...); \
+			return (i&1)==0 ? \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)): \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...)); \
 		} \
 		template<typename... Rs> \
 		constexpr auto fname##_impl(const itype &i, Rs &&...rs) \
-			noexcept(noexcept(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)) \
-				&& noexcept(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...))) \
+			noexcept(noexcept((i&1)==0 ? \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)): \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...)))) \
 		{ \
-			return (i&1)==0 ? t1.fname##_impl(i>>1,std::forward<Rs>(rs)...) : \
-					t2.fname##_impl(i>>1,std::forward<Rs>(rs)...); \
+			return (i&1)==0 ? \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)): \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...)); \
 		}
 
-#define WRITEBASEIMPL(fname) \
+#define WRITEIMPLN2(uname,fname) \
+		template<typename... Rs> \
+		constexpr auto fname##_impl(const itype &i, Rs &&...rs) const \
+			noexcept(noexcept(RTEXPRSELECT(uname,(i&1)==0, \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)), \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...))))) \
+		{ \
+			return RTEXPRSELECT(uname,(i&1)==0, \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)), \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...))); \
+		} \
+		template<typename... Rs> \
+		constexpr auto fname##_impl(const itype &i, Rs &&...rs) \
+			noexcept(noexcept(RTEXPRSELECT(uname,(i&1)==0, \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)), \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...))))) \
+		{ \
+			return RTEXPRSELECT(uname,(i&1)==0, \
+					(t1.fname##_impl(i>>1,std::forward<Rs>(rs)...)), \
+					(t2.fname##_impl(i>>1,std::forward<Rs>(rs)...))); \
+		}
+
+#define WRITEIMPLX1(a1) HERE a1;
+#define WRITEIMPLX2(a1,a2) HERE a1; a2;
+#define WRITEIMPLX3(a1,a2,a3) HERE a1; a2; a3;
+
+#define WRITEIMPL(ARG) CALLVAR_N2(WRITEIMPLN,STRIPPAREN(ARG))
+
+#define WRITEBASEIMPLN1(fname) \
 		template<typename... Rs> \
 		constexpr auto fname##_impl(const itype &, Rs &&...rs) const \
 				noexcept(noexcept(t.fname(std::forward<Rs>(rs)...))) { \
@@ -90,7 +129,22 @@ namespace commonunion {
 			return t.fname(std::forward<Rs>(rs)...); \
 		}
 
-#define WRITEDISPATCH(fname) \
+#define WRITEBASEIMPLN2(rettype,fname) \
+		template<typename... Rs> \
+		constexpr auto fname##_impl(const itype &, Rs &&...rs) const \
+				noexcept(noexcept(t.fname(std::forward<Rs>(rs)...))) { \
+			return t.fname(std::forward<Rs>(rs)...); \
+		} \
+ \
+		template<typename... Rs> \
+		constexpr auto fname##_impl(const itype &, Rs &&...rs)  \
+				noexcept(noexcept(t.fname(std::forward<Rs>(rs)...))) { \
+			return t.fname(std::forward<Rs>(rs)...); \
+		}
+
+#define WRITEBASEIMPL(ARG) CALLVAR_N2(WRITEBASEIMPLN,STRIPPAREN(ARG))
+
+#define WRITEDISPATCHN1(fname) \
 	template<typename... Rs> \
 	constexpr auto fname(Rs &&...rs) const \
 			noexcept(noexcept(this->node.fname##_impl(this->tag,std::forward<Rs>(rs)...))) { \
@@ -102,6 +156,20 @@ namespace commonunion {
 			noexcept(noexcept(this->node.fname##_impl(this->tag,std::forward<Rs>(rs)...))) { \
 		return node.fname##_impl(tag,std::forward<Rs>(rs)...); \
 	}
+#define WRITEDISPATCHN2(rettype,fname) \
+	template<typename... Rs> \
+	constexpr auto fname(Rs &&...rs) const \
+			noexcept(noexcept(this->node.fname##_impl(this->tag,std::forward<Rs>(rs)...))) { \
+		return node.fname##_impl(tag,std::forward<Rs>(rs)...); \
+	} \
+ \
+	template<typename... Rs> \
+	constexpr auto fname(Rs &&...rs)  \
+			noexcept(noexcept(this->node.fname##_impl(this->tag,std::forward<Rs>(rs)...))) { \
+		return node.fname##_impl(tag,std::forward<Rs>(rs)...); \
+	}
+
+#define WRITEDISPATCH(ARG) CALLVAR_N2(WRITEDISPATCHN,STRIPPAREN(ARG))
 
 
 #define DEFUNION(name,baseclause,...) \
