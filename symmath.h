@@ -638,9 +638,17 @@ struct absopexpr {};
 
 // An expression representing an operation (OP) on types F1 through Fn
 template<typename OP, typename F1, typename... Fs>
-struct symop : public mathexpr<symop<OP,F1,Fs...>, decltype(dovalue(std::declval<OP>(),std::declval<std::tuple<F1,Fs...>>()))>, public absopexpr {
+struct symop : public mathexpr<symop<OP,F1,Fs...>,
+				decltype(std::declval<OP>()(
+					std::declval<typename getrange<F1>::type>(),
+					std::declval<typename getrange<Fs>::type>()...))
+			>, public absopexpr {
 	typedef std::tuple<F1,Fs...> TT;
-	typedef mathexpr<symop<OP,F1,Fs...>, decltype(dovalue(std::declval<OP>(),std::declval<std::tuple<F1,Fs...>>()))> baseT;
+	typedef mathexpr<symop<OP,F1,Fs...>,
+			decltype(std::declval<OP>()(
+					std::declval<typename getrange<F1>::type>(),
+					std::declval<typename getrange<Fs>::type>()...))
+		> baseT;
 
 	OP op;
 	TT fs;
@@ -706,7 +714,7 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>, decltype(dovalue(std::declval
 		template<typename FF>
 		constexpr applyfn(FF &&ff) : f(std::forward<FF>(ff)) {}
 		template<typename... Ts>
-		constexpr auto operator()(Ts &&ts)
+		constexpr auto operator()(Ts &&...ts)
 			{ return f(symop<OP,F1,Fs...>{std::forward<Ts>(ts)...}); }
 	};
 	// end silliness
@@ -742,7 +750,7 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>, decltype(dovalue(std::declval
 
 	template<typename F>
 	constexpr auto dotransform(F f, bool postorder=true) const {
-		return doopfn(applyfn{f},f,fs);
+		return doopfn(applyfn<F>{f},f,fs);
 	}
 
 
