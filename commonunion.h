@@ -176,7 +176,12 @@ namespace commonunion {
 namespace commonunion { namespace name##_node_impl { \
 	template<typename EN=void,typename... Ts> struct cu_impl; \
 	template<typename EN=void,typename... Ns> struct cu_node; \
+} } \
+template<typename... Ts> using name = typename stripdupargs< \
+			typename flattentype<commonunion::name##_node_impl::cu_impl<void>,Ts...>::type \
+												>::type; \
 	\
+namespace commonunion { namespace name##_node_impl { \
 	template<typename... Ns> \
 	struct typecalc { \
 		typedef cu_node<void,Ns...> noduptype;  \
@@ -917,10 +922,6 @@ namespace commonunion { namespace name##_node_impl { \
 \
 } } \
 \
-/*template<typename... Ts> using name = typename strip_dups<commonunion::name##_node_impl::cu_impl<void>,Ts...>::type;  */ \
-template<typename... Ts> using name = typename stripdupargs< \
-			typename flattentype<commonunion::name##_node_impl::cu_impl<void>,Ts...>::type \
-												>::type; \
 
 #endif
 

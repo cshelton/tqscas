@@ -223,7 +223,9 @@ struct commonrange<T> {
 
 #define UNIONBASE : public mathexpr<cu_impl<void,Ts...>, typename commonrange<Ts...>::type>
 
-DEFUNION(mathexprunion,UNIONBASE,dosubst,dofold,doderiv,doval,doisconst,doname,doprecedence,doprint)
+DEFUNION(mathexprunion,UNIONBASE,
+		(mathexprunion,dosubst),(mathexprunion,dofold),
+		(mathexprunion,doderiv),doval,doisconst,doname,doprecedence,doprint)
 
 template<typename T>
 struct getrange {
