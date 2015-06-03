@@ -702,7 +702,7 @@ namespace commonunion { namespace name##_node_impl { \
 		constexpr cu_impl(const cu_impl<void,Rs...> &cu)  \
 			noexcept(std::is_nothrow_constructible<nodeT, \
 									decltype(cu.node.t)>::value) \
-				: node(cu.node.t), tag(0) { \
+				: node(cu.node.t), tag(nodeindex<typename std::decay<decltype(cu.node.t)>::type>::value) { \
 			static_assert(commonunion::sameuniontype1< \
 						typecalc<Rs...>, \
 						typecalc<Ts...>\
@@ -714,7 +714,8 @@ namespace commonunion { namespace name##_node_impl { \
 		constexpr cu_impl(cu_impl<void,Rs...> &&cu) \
 			noexcept(std::is_nothrow_constructible<nodeT, \
 								decltype(std::move(cu.node.t))>::value) \
-				: node(std::move(cu.node.t)), tag(0) { \
+				: node(std::move(cu.node.t)), \
+					tag(nodeindex<typename std::decay<decltype(cu.node.t)>::type>::value) { \
 			static_assert(commonunion::sameuniontype1< \
 						typecalc<Rs...>, \
 						typecalc<Ts...>\
@@ -847,7 +848,7 @@ namespace commonunion { namespace name##_node_impl { \
 		constexpr cu_impl(const cu_impl<void,Rs...> &cu)  \
 			noexcept(std::is_nothrow_constructible<nodeT, \
 									decltype(cu.node.t)>::value) \
-				: node(cu.node.t), tag(0) { \
+				: node(cu.node.t), tag(nodeindex<typename std::decay<decltype(cu.node.t)>::type>::value) { \
 			static_assert(commonunion::sameuniontype1< \
 						typecalc<Rs...>, \
 						typecalc<Ts...>\
@@ -859,7 +860,8 @@ namespace commonunion { namespace name##_node_impl { \
 		constexpr cu_impl(cu_impl<void,Rs...> &&cu) \
 			noexcept(std::is_nothrow_constructible<nodeT, \
 								decltype(std::move(cu.node.t))>::value) \
-				: node(std::move(cu.node.t)), tag(0) { \
+				: node(std::move(cu.node.t)), \
+					tag(nodeindex<typename std::decay<decltype(cu.node.t)>::type>::value) { \
 			static_assert(commonunion::sameuniontype1< \
 						typecalc<Rs...>, \
 						typecalc<Ts...>\
