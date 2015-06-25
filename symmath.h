@@ -45,6 +45,13 @@ struct is_mathsym<T,typename makevoid<typename getrange<T>::type>::type> {
 };
 */
 
+// below b/c lambdas can't be used in constexpr (but the following can!)
+struct idfn {
+	constexpr idfn() {}
+	template<typename T>
+	constexpr auto operator()(T &&t) const { return std::forward<T>(t); }
+};
+
 template<typename T>
 struct is_mathsym {
 	enum { value = std::is_base_of<absmathexpr,typename std::decay<T>::type>::value };
@@ -160,7 +167,7 @@ struct mathexpr : public absmathexpr {
 		constexpr auto operator()(OP &&op, Ts &&...ts) const
 			{ return std::forward<OP>(op)(std::forward<Ts>(ts)...); }
 	};
-	constexpr auto val() const { return fold(recomb{},getval{}); }
+	constexpr auto val() const { return foldval(recomb{},getval{}); }
 
 	// derivative 
 	template<typename E,
@@ -173,6 +180,11 @@ struct mathexpr : public absmathexpr {
 	template<typename COMBF, typename LEAFF>
 	constexpr auto fold(COMBF &&cf, LEAFF &&lf) const {
 		return dclassref().dofold(std::forward<COMBF>(cf),
+							std::forward<LEAFF>(lf));
+	}
+	template<typename COMBF, typename LEAFF>
+	constexpr auto foldval(COMBF &&cf, LEAFF &&lf) const {
+		return dclassref().dofoldval(std::forward<COMBF>(cf),
 							std::forward<LEAFF>(lf));
 	}
 
@@ -201,6 +213,9 @@ struct mathexpr : public absmathexpr {
 	template<typename COMBF, typename LEAFF> // default to "leaf"
 	constexpr auto dofold(COMBF &&cf, LEAFF &&lf) const
 			{ return std::forward<LEAFF>(lf)(dclassref()); }
+	template<typename COMBF, typename LEAFF> // default to "leaf"
+	constexpr auto dofoldval(COMBF &&cf, LEAFF &&lf) const
+			{ return std::forward<LEAFF>(lf)(dclassref()); }
 	void print(std::ostream &os, int prec=1000) const { return dclassref().doprint(os,prec); }
 	
 };
@@ -224,7 +239,7 @@ struct commonrange<T> {
 #define UNIONBASE : public mathexpr<cu_impl<void,Ts...>, typename commonrange<Ts...>::type>
 
 DEFUNION(mathexprunion,UNIONBASE,
-		(mathexprunion,dosubst),(mathexprunion,dofold),
+		(mathexprunion,dosubst),(mathexprunion,dofold),dofoldval,
 		(mathexprunion,doderiv),doval,doisconst,doname,doprecedence,doprint)
 
 template<typename T>
@@ -681,6 +696,7 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 	constexpr symop(const F1 &f1, const Fs &...fs) : fs(f1,fs...) {}
 	constexpr symop(const OP &o, const F1 &f1, const Fs &...fs) : op(o), fs(f1,fs...) {}
 
+	constexpr symop&operator=(const symop&) = default;
 
 	constexpr bool doisconst() const { return false; }
 
@@ -695,15 +711,10 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 		constexpr opder(const E &ee, const symop<OP,F1,Fs...> &tt)
 				: e(ee), t(tt) {}
 		template<typename... Ts>
-		constexpr auto operator()(Ts &&...ts) {
+		constexpr auto operator()(Ts &&...ts) const {
 			return opinfo<OP,F1,Fs...>::doderiv(e,t.op,
 					std::forward<Ts>(ts)...);
 		}
-	};
-	struct idfn {
-		constexpr idfn() {}
-		template<typename T>
-		constexpr auto operator()(T &&t) const { return std::forward<T>(t); }
 	};
 	template<typename F>
 	struct applyfn {
@@ -724,6 +735,15 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 		template<typename T>
 		constexpr auto operator()(T &&t) const
 			{ return std::forward<T>(t).fold(cf,lf); }
+	};
+	template<typename CF, typename LF>
+	struct recurfoldval {
+		const CF &cf;
+		const LF &lf;
+		constexpr recurfoldval(const CF &ccf, const LF &llf) : cf(ccf), lf(llf) {}
+		template<typename T>
+		constexpr auto operator()(T &&t) const
+			{ return std::forward<T>(t).foldval(cf,lf); }
 	};
 		
 	// end silliness
@@ -747,7 +767,21 @@ struct symop : public mathexpr<symop<OP,F1,Fs...>,
 						typename std::decay<LEAFF>::type>
 					{cf,std::forward<LEAFF>(lf)},fs);
 	}
+	template<typename COMBF, typename LEAFF>
+	constexpr auto dofoldval(COMBF &&cf, LEAFF &&lf) const {
+		return doopfn(applyfn<typename std::decay<COMBF>::type>
+							{op,cf},
+				recurfoldval<typename std::decay<COMBF>::type,
+						typename std::decay<LEAFF>::type>
+					{cf,std::forward<LEAFF>(lf)},fs);
+	}
 
+	template<typename COMBF, typename LEAFF>
+	constexpr auto querysubexpr(COMBF &&cf, LEAFF &&lf) const {
+		return doopfn(applyfn<typename std::decay<COMBF>::type>
+					{op,std::forward<COMBF>(cf)},
+					std::forward<LEAFF>(lf),fs);
+	}
 
 	constexpr int doprecedence() const
 		{ return opinfo<OP,F1,Fs...>::precedence; }
@@ -1159,26 +1193,80 @@ struct exprinfo<commonunion::mathexprunion_node_impl::cu_impl<void,T1>,void> {
 
 // simplify:
 
-/*
+// once again... because lambdas can't be used in constexpr (ARGH)
 template<std::size_t I>
 struct simplifyrule {
-	template<typename E,
-		typename std::enable_if<!exprinfo<E>::possibleop>::type *EN=nullptr>
-	static E operator()(const E &e) { return e; }
-	template<typename E,
-		typename std::enable_if<exprinfo<E>::possibleop>::type *EN=nullptr>
-	static E operator()(const E &e) { return e; }
+	enum { blank=1 };
+};
+
+struct alltrue {
+	template<typename OP, typename T1, typename T2, typename... Ts>
+	constexpr auto operator()(const OP &op, const T1 &t1, const T2 &t2, const Ts &...ts) const {
+		return t1 && (*this)(op,t2,ts...);
+	}
+	template<typename OP, typename T1>
+	constexpr auto operator()(const OP &op, const T1 &t1) const
+		{ return t1; }
+};
+
+struct checkconst {
+	template<typename E>
+	constexpr auto operator()(const E &e) const {
+		return e.isconst();
+	}
 };
 
 template<>struct simplifyrule<0> {
-	template<typename E>
-	static E 
-
-template<typename E, typename std::enable_if<is_mathsym<E>::value>::type *EN=nullptr>
-constexpr auto simplify(E &&e) { 
-	return simplifyrule<0>::(std::forward<E>(e));
-}
-
+	enum { blank=0 };
+	//template<typename E>
+	//constexpr auto operator()(E &&e) const { return std::forward<E>(e); } 
+	template<typename OP, typename T, typename... Ts>
+	constexpr auto operator()(const symop<OP,T,Ts...> &e) const {
+		return RTEXPRSELECT(mathexprunion,
+			(e.querysubexpr(alltrue{},checkconst{})),
+				(rtconstsym<typename getrange<symop<OP,T,Ts...>>::type>
+						{e.val()}),
+				e);
+	}
+/*
+	template<typename OP, typename T, typename... Ts>
+	constexpr auto operator()(symop<OP,T,Ts...> &&e) const {
+		return RTEXPRSELECT(mathexprunion,
+			(e.querysubexpr(alltrue{},checkconst{})),
+				(rtconstsym<typename getrange<symop<OP,T,Ts...>>::type>
+						{std::move(e).val()}),
+				std::move(e));
+	}
 */
+};
+
+template<std::size_t I, typename EN=void>
+struct runsimplifyrule {
+	template<typename E>
+	constexpr auto operator()(const E &e) const { 
+		return e;
+	}
+};
+
+template<std::size_t I>
+struct runsimplifyrule<I,typename std::enable_if<!simplifyrule<I>::blank>::type> {
+	template<typename E>
+	constexpr auto operator()(const E &e) const {
+		return runsimplifyrule<I+1>{}(simplifyrule<I>{}(e));
+	}
+};
+	
+struct execsimplify {
+	template<typename OP, typename... Ts>
+	constexpr auto operator()(const OP &op, const Ts &...ts) const { 
+		return runsimplifyrule<0>{}(symop<OP,Ts...>{op,ts...});
+	}
+};
+
+template<typename E,
+	typename std::enable_if<is_mathsym<E>::value>::type *EN=nullptr>
+constexpr auto simplify(const E &e) {
+	return e.fold(execsimplify{},idfn{});
+}
 
 #endif

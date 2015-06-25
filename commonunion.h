@@ -395,7 +395,8 @@ namespace commonunion { namespace name##_node_impl { \
 			else { \
 				/* t2.predestruct(priori>>1); \
 				t2.~type2(); */ \
-				new(&t1) type1(std::forward<T1>(tt1)); \
+				/*new(&t1) type1(std::forward<T1>(tt1));*/ \
+				t1.assign(priori>>1,std::forward<T1>(tt1)); \
 			} \
 		} \
  \
@@ -409,7 +410,8 @@ namespace commonunion { namespace name##_node_impl { \
 			if ((priori&1)==0) { \
 				/* t1.predestruct(priori>>1); \
 				t1.~type1(); */ \
-				new(&t2) type2(std::forward<T2>(tt2)); \
+				/*new(&t2) type2(std::forward<T2>(tt2));*/ \
+				t2.assign(priori>>1,std::forward<T2>(tt2)); \
 			} else t2.assign(priori>>1,std::forward<T2>(tt2)); \
 		} \
  \
@@ -419,7 +421,8 @@ namespace commonunion { namespace name##_node_impl { \
 		constexpr void init(T1 &&tt1) \
 				noexcept(std::is_nothrow_constructible<type1, \
 					decltype(std::forward<T1>(tt1))>::value) { \
-			new(&t1) type1(std::forward<T1>(tt1)); \
+			/*new(&t1) type1(std::forward<T1>(tt1));*/ \
+			t1.assign(0,std::forward<T1>(tt1)); \
 		} \
  \
 		template<typename T2, \
@@ -428,7 +431,8 @@ namespace commonunion { namespace name##_node_impl { \
 		constexpr void init(T2 &&tt2) \
 				noexcept(std::is_nothrow_constructible<type2, \
 					decltype(std::forward<T2>(tt2))>::value) { \
-			new(&t2) type2(std::forward<T2>(tt2)); \
+			/*new(&t2) type2(std::forward<T2>(tt2));*/ \
+			t2.assign(0,std::forward<T2>(tt2)); \
 		} \
  \
 		template<typename... Rs> \
@@ -463,23 +467,6 @@ namespace commonunion { namespace name##_node_impl { \
 			if ((i&1)==0) std::move(t1).assigntoinit(i>>1,cu); \
 			else std::move(t2).assigntoinit(i>>1,cu); \
 		} \
- \
-		template<typename T, typename EN=void> \
-		struct index { \
-			enum {value = 0}; \
-		}; \
- \
-		template<typename T> \
-		struct index<T, typename std::enable_if< \
-				isargtype<typename std::decay<T>::type,type1>::value>::type> { \
-			enum {value = type1::template index<T>::value*2}; \
-		}; \
- \
-		template<typename T> \
-		struct index<T, typename std::enable_if< \
-				isargtype<typename std::decay<T>::type,type2>::value>::type> { \
-			enum {value = 1 + type2::template index<T>::value*2}; \
-		}; \
  \
  		FOREACH(WRITEIMPL,__VA_ARGS__) \
 	}; \
@@ -553,11 +540,6 @@ namespace commonunion { namespace name##_node_impl { \
 			new(&t) T(std::move<T>(tt)); \
 		} \
  \
-		template<typename R> \
-		struct index { \
-			enum { value=0 }; \
-		}; \
- \
  		FOREACH(WRITEBASEIMPL,__VA_ARGS__) \
 	}; \
  \
@@ -624,11 +606,6 @@ namespace commonunion { namespace name##_node_impl { \
 				noexcept(std::is_nothrow_constructible<T,T &&>::value) { \
 			new(&t) T(std::move<T>(tt)); \
 		} \
- \
-		template<typename R> \
-		struct index { \
-			enum { value=0 }; \
-		}; \
  \
  		FOREACH(WRITEBASEIMPL,__VA_ARGS__) \
 	}; \
