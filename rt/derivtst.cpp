@@ -34,4 +34,8 @@ int main(int argc, char **argv) {
 	showderiv(pow(y,2.0*x)/x, x);
 
 	showderiv(log(exp(2.0*x)/x), x);
+
+	showderiv(abs(x), x);
+	showderiv(log(cond(x,x*x,x)), x);
+	showderiv(cond(x,log(x*x),log(x)), x);
 }

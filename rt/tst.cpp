@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
 	E z(newvar<double>("z"));
 	E e2(plusop,x,x);
 
+/*
 	showsimp((x+x)*(x+x)-y);
 	showsimp(expr(minusop,newconst(3.0),newconst(1.2))+(y+y)+y+(x+x)+(x+x));
 	showsimp(x+(x+x)+(2*x)+(x*pow(x,2.0))+(x*pow(3.0,2.0)));
@@ -100,4 +101,13 @@ int main(int argc, char **argv) {
 	showsimp((2+pow(x,2))+(pow(x,2)+2));
 
 	showsimp((x*y)+(y*x));
+*/
+
+	showsimp(abs(x+y));
+	showsimp(abs(x+y)+abs(x+y));
+	showsimp(abs(2*x+2*y)+abs(x+y));
+	showsimp(cond(x,cond(x+5,1,y),cond(x+6,3,cond(x-2,y,y*y))));
+
+	showsimp(log(cond(x,x,x*x)));
+	showsimp(cond(x,log(x),log(x*x)));
 }

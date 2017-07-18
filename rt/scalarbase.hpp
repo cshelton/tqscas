@@ -144,6 +144,69 @@ struct opchain : public opinfo {
 const std::shared_ptr<opchain> pluschain = std::make_shared<opchain>(plusop);
 const std::shared_ptr<opchain> multiplieschain = std::make_shared<opchain>(multipliesop);
 
+template<typename T>
+struct condopinfo : public opinfo {
+	condopinfo() : opinfo(3,"?",false,false,15) {}
+	// three children: child1 < 0 ? child2 : child3
+	virtual any opeval(const any &x1, const any &x2, const any &x3) const {
+		return (MYany_cast<T>(x1)<0) ? MYany_cast<T>(x2) : MYany_cast<T>(x3);
+	}
+};
+
+template<typename T>
+struct switchopinfo : public opinfo {
+	// children: <test> <val1> <thresh1> <val2> <thresh2>
+	// 			... <valn> <threshn> <valn+1>
+	// threshs should be constants and in sorted order! (?)
+	// evals to vali iff test<threshi and test>=thresh j forall j<i
+	// evals to valn+1 iff test>=threshn
+	
+	switchopinfo() : opinfo(0,"S",false,false,15) {}
+	virtual any opeval(const std::vector<any> &x) const {
+		T val = MYany_cast<T>(x[0]);
+		for(int i=2;i<x.size();i+=2) {
+			T theta = MYany_cast<T>(x[i]);
+			if (val < theta) return MYany_cast<T>(x[i-1]);
+		}
+		return MYany_cast<T>(x.back());
+	}
+};
+
+const op condop = toptr<condopinfo<double>>();
+const op switchop = toptr<switchopinfo<double>>();
+
+
+expr abs(const expr &e) {
+	return {condop,e,-e,e};
+}
+
+template<typename E1, typename E2, typename E3>
+expr cond(E1 &&condition, E2 &&negexp, E3 &&posexp) {
+	return {condop,std::forward<E1>(condition),
+		std::forward<E2>(negexp), std::forward<E3>(posexp)};
+}
+
+expr varargtovec(std::vector<expr> &ret) {
+	return ret;
+}
+
+template<typename E1, typename... Es>
+expr varargtovec(std::vector<expr> &ret, E1 &&e1, Es &&...es) {
+	ret.emplace_back(std::forward<E1>(e1));
+	return varargtovec(ret,std::forward<Es>(es)...);
+}
+
+template<typename E1, typename... Es>
+expr caseexpr(E1 &&condition, Es &&...exprs) {
+	std::vector<expr> es{};
+	return {switchop,varargtovec(es,std::forward<Es>(exprs)...)};
+}
+
+expr caseexpr(const expr &condexp, std::vector<expr> args) {
+	args.insert(args.begin(),condexp);
+	return {switchop,std::move(args)};
+}
+
 bool isconst(const expr &e1) {
 	return e1.isleaf() && e1.asleaf().type()==typeid(double);
 }

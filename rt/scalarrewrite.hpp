@@ -607,15 +607,16 @@ struct sortchildren : public rewriterule {
 		if (e.isleaf()) {
 			if (isconst(e)) return 0;
 			if (isconstwrt(e,vars)) return 1;
-			return 7;
+			return 8;
 		}
-		int add = (isconstwrt(e,vars) ? 2 : 8);
+		int add = (isconstwrt(e,vars) ? 2 : 9);
 		auto &op = e.asnode();
 		if (op==plusop || op==pluschain) return 0+add;
 		if (op==multipliesop || op==multiplieschain) return 1+add;
 		if (op==powerop) return 2+add;
 		if (op==logop) return 3+add;
-		return 4+add;
+		if (op==condop || op==switchop) return 4+add;
+		return 5+add;
 	}
 
 	int secondordering(const expr &e1, const expr &e2) const {
@@ -666,7 +667,6 @@ struct sortchildren : public rewriterule {
 	}
 };
 
-
 struct removesinglechain : public rewriterule {
 	op matchop;
 	removesinglechain(op mop) : matchop(mop) {}
@@ -680,12 +680,187 @@ struct removesinglechain : public rewriterule {
 	}
 };
 
+struct condtocase : public rewriterule {
+	virtual bool apply(expr &e) const {
+		if (e.isleaf() || e.asnode()!=condop) return false;
+		auto &ch = e.children();
+		e = expr{switchop,ch[0],ch[1],newconst(0.0),ch[2]};
+		return true;
+	}
+};
+
+struct normswitch : public rewriterule {
+	virtual bool apply(expr &e) const {
+		if (e.isleaf() || e.asnode()!=switchop) return false;
+		auto &ch = e.children();
+		expr tosub = newconst(0.0);
+		if (ch[0].isleaf()) {
+			if (!isconst(ch[0]) || getconst<double>(ch[0])==0.0)
+				return false;
+			tosub = ch[0];
+		} else {
+			if (ch[0].asnode()!=pluschain || ch[0].children().empty()
+					|| !isconst(ch[0].children()[0])
+					|| getconst<double>(ch[0].children()[0])==0.0)
+				return false;
+			tosub = ch[0].children()[0];
+		}
+		std::vector<expr> newch(ch);
+		for (int i=0;i<ch.size();i+=2)
+			newch[i] = newch[i] - tosub;
+		e = expr{e.asnode(),newch};
+		return true;
+	}
+};
+
+struct liftswitch : public rewriterule {
+
+	static expr replacech(const expr &e, int chi, const expr &ch) {
+		auto &ech = e.children();
+		std::vector<expr> newch;
+		newch.reserve(ech.size());
+		for(int i=0;i<ech.size();i++)
+			if (i==chi) newch.emplace_back(ch);
+			else newch.emplace_back(ech[i]);
+		return {e.asnode(),newch};
+	}
+
+	virtual bool apply(expr &e) const {
+		if (e.isleaf() || e.asnode()==switchop || e.asnode()==condop)
+			return false;
+		auto &ch = e.children();
+		for(int i=0;i<ch.size();i++)
+			if (!ch[i].isleaf() && ch[i].asnode()==switchop) {
+				auto &sch = ch[i].children();
+				std::vector<expr> newch;
+				for(int j=0;j<sch.size();j+=2) {
+					newch.emplace_back(sch[j]);
+					newch.emplace_back(replacech(e,i,sch[j+1]));
+				}
+				e = expr{switchop,newch};
+				return true;
+			}
+		return false;
+	}
+};
+
+/*
+struct liftswitch : public binrewrite {
+	liftswitch(const op &o) : binrewrite(o) {}
+
+	virtual bool valid(const expr &e1, const expr &e2) const {
+		if (e1.isleaf() || e1.asnode()!=switchop) return false;
+		if (e2.isleaf() || e2.asnode()!=switchop) return false;
+		auto &ch1 = e1.children();
+		auto &ch2 = e2.children();
+		if (ch1.size()!=ch2.size()) return false;
+		for(int j=0;j<ch1.size();j+=2)
+			if (!(ch1[j]==ch2[j])) return false;
+		return true;
+	}
+
+	virtual expr exec(const expr &e1, const expr &e2) const {
+		auto &ch1 = e1.children();
+		auto &ch2 = e2.children();
+		std::vector<expr> newch;
+		newch.reserve(ch1.size());
+		for(int i=0;i<ch1.size();i+=2) {
+			if (i==0) newch.emplace_back(ch1[0]);
+			else newch.emplace_back(matchop,ch1[i],ch2[i]);
+			newch.emplace_back(ch1[i+1]);
+		}
+		return {switchop,newch};
+	}
+};
+*/
+
+struct squeezeswitch : public rewriterule {
+	virtual bool apply(expr &e) const {
+		if (e.isleaf() || e.asnode()!=switchop) return false;
+		auto &ch = e.children();
+		if (ch.size()<5) {
+			if (ch[1]==ch[3]) { // technically, this might expand
+				// the domain (if ch[0] is undefined in places)
+				e = ch[1];
+				return true;
+			}
+			return false;
+		}
+		for(int i=2;i<ch.size()-1;i+=2)
+			if (ch[i-1]==ch[i+1]) {
+				std::vector<expr> newch;
+				newch.reserve(ch.size()-2);
+				for(int j=0;j<i;j++) newch.emplace_back(ch[j]);
+				for(int j=i+2;j<ch.size();j++) newch.emplace_back(ch[j]);
+				e = expr{e.asnode(),newch};
+				return true;
+			}
+		return false;
+	}
+};
+
+
+struct mergeswitch : public rewriterule {
+	static bool ismergeable(const expr &e, const expr &te, bool checkte=true) {
+		if (e.isleaf() || e.asnode()!=switchop) return false;
+		auto &ch = e.children();
+		if (checkte && !(ch[0]==te)) return false;
+		double lastk = 0;
+		for(int i=2;i<ch.size();i+=2) {
+			if (!isconst(ch[i])) return false;
+			if (i>2) {
+				double newk = getconst<double>(ch[i]);
+				if (newk<lastk) return false;
+				lastk = newk;
+			}
+		}
+		return true;
+	}
+
+	virtual bool apply(expr &e) const {
+		if (!ismergeable(e,e,false)) return false;
+		auto &ch = e.children();
+		int mchi = -1;
+		double preth = -std::numeric_limits<double>::infinity();
+		double postth = std::numeric_limits<double>::infinity();
+		for(int i=1;i<ch.size();i+=2)
+			if (ismergeable(ch[i],ch[0])) {
+				mchi = i;
+				if (i>1) preth = getconst<double>(ch[i-1]);
+				if (i+1 < ch.size()) postth = getconst<double>(ch[i+1]);
+				break;
+			}
+		if (mchi==-1) return false;
+
+		auto &mch = ch[mchi].children();
+		std::vector<expr> newch;
+		for(int i=0;i<mchi;i++)
+			newch.emplace_back(ch[i]);
+		newch.reserve(ch.size()+mch.size()-2);
+		for(int i=1;i<mch.size();i+=2) {
+			double th = (i+1<mch.size() ? getconst<double>(mch[i+1])
+							: std::numeric_limits<double>::infinity());
+			if (th > preth) {
+				newch.emplace_back(mch[i]);
+				if (th < postth && i+1<mch.size()) newch.emplace_back(mch[i+1]);
+				else break;
+			}
+		}
+		for(int i=mchi+1;i<ch.size();i++)
+			newch.emplace_back(ch[i]);
+		e = expr{e.asnode(),newch};
+		return true;
+	}
+};
+
 const std::vector<ruleptr> scalarsimprules {{
 		toptr<minustoplus>(),
 		toptr<consteval>(),
 		toptr<chainconstcompress>(),
 		toptr<negatetomult>(),
 		toptr<divtomult>(),
+		toptr<condtocase>(),
+		toptr<normswitch>(),
 		toptr<optochain>(pluschain,multiplieschain),
 		toptr<removeidentity>(powerop,1.0,false,true),
 		toptr<rewritechain>(toptr<removeidentity>(plusop,0.0)),
@@ -711,6 +886,12 @@ const std::vector<ruleptr> scalarsimprules {{
 		toptr<powlog>(),
 		toptr<powplus>(),
 		toptr<powlog2>(),
+		toptr<mergeswitch>(),
+		toptr<squeezeswitch>(),
+		//toptr<liftswitch>(powerop),
+		//toptr<rewritechain>(toptr<liftswitch>(plusop)),
+		//toptr<rewritechain>(toptr<liftswitch>(multipliesop)),
+		toptr<liftswitch>(),
 		toptr<rewritechain>(toptr<distribute>()),
 		toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain,plusop,multipliesop}),
 		}};
@@ -736,6 +917,8 @@ std::vector<ruleptr> scalarsimpwrt(const std::vector<expr> &vs) {
 		toptr<chainconstcompress>(),
 		toptr<negatetomult>(),
 		toptr<divtomult>(),
+		toptr<condtocase>(),
+		toptr<normswitch>(),
 		toptr<optochain>(pluschain,multiplieschain),
 		toptr<removeidentity>(powerop,1.0,false,true),
 		toptr<rewritechain>(toptr<removeidentity>(plusop,0.0)),
@@ -761,6 +944,12 @@ std::vector<ruleptr> scalarsimpwrt(const std::vector<expr> &vs) {
 		toptr<powlog>(vs),
 		toptr<powplus>(vs),
 		toptr<powlog2>(vs),
+		toptr<mergeswitch>(),
+		toptr<squeezeswitch>(),
+		//toptr<liftswitch>(powerop),
+		//toptr<rewritechain>(toptr<liftswitch>(plusop)),
+		//toptr<rewritechain>(toptr<liftswitch>(multipliesop)),
+		toptr<liftswitch>(),
 		toptr<rewritechain>(toptr<distribute>(vs)),
 		toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain,plusop,multipliesop},vs),
 		toptr<rewriteconst>(vs),
