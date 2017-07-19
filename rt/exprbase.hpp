@@ -20,7 +20,25 @@ auto MYany_cast(any &a) {
 
 
 struct allvarsT {};
+struct noexprT {};
 
+struct matcher {
+	virtual bool matches(const expr &e) const {
+		return false;
+	}
+};
+
+struct placeholderT {
+	placeholderT(int nn) : n(nn), m(new matcher()) {}
+	template<typename T>
+	placeholderT(int nn, T &&mm) : n(nn), m(std::forward<T>(mm)) {}
+	int n;
+	std::shared_ptr<matcher> m;
+
+	bool operator<(const placeholderT &p) const {
+		return n<p.n;
+	}
+};
 
 struct opinfo {
 	// perhaps narg isn't needed (narg=0 => variable)
@@ -102,6 +120,11 @@ bool operator==(const leaf &a, const leaf &b) {
 		     { return MYany_cast<var>(a) == MYany_cast<var>(b); }},
 		   {typeid(allvarsT),[](const any &a, const any &b) 
 		     { return true; }},
+		   {typeid(noexprT),[](const any &a, const any &b) 
+		     { return true; }},
+		   {typeid(placeholderT),[](const any &a, const any &b) 
+		     { return MYany_cast<placeholderT>(a).n
+				== MYany_cast<placeholderT>(b).n; }},
 		   {typeid(op),[](const any &a, const any &b) 
 		     { return MYany_cast<op>(a) == MYany_cast<op>(b); }},
             };
@@ -135,6 +158,7 @@ struct uniopinfo : public opinfo {
 using expr = gentree<leaf,op>;
 
 const expr allvars{allvarsT{}};
+const expr noexpr {noexprT{}};
 
 template<typename T>
 expr newvar(const std::string &name) {
