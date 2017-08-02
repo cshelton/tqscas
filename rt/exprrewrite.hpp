@@ -33,6 +33,32 @@ struct binrewrite : public rewriterule {
 		{ return {matchop,e1,e2}; }
 };
 
+struct substrewrite : public rewriterule {
+	std::shared_ptr<placeholdermatcher> m;
+	expr pre,post;
+
+	substrewrite(expr before, expr after,
+			std::shared_ptr<placeholdermatcher> mm)
+		: pre(std::move(before)), post(std::move(after)), m(mm) {}
+	substrewrite(expr before, expr after) 
+		: pre(std::move(before)), post(std::move(after)) {
+			m = std::make_shared<placeholdermatcher();
+	}
+
+	virtual bool apply(expr &e) const {
+		std::vector<subst> st;
+		if (m->match(e,pre,st) && validsub(st)) {
+			e = substitute(post,st);
+			return true;
+		}
+		return false;
+	}
+
+	virtual bool validsub(const std::vector<subst> &st) const {
+		return true;
+	}
+};
+
 using ruleptr = std::shared_ptr<rewriterule>;
 
 bool runrules(expr &e, const std::vector<ruleptr> &rules) {

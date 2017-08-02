@@ -61,7 +61,7 @@ struct placeholdermatcher {
 		return r==e;
 	}
 
-	virtual bool matchleaf(const expr &e, const expr &r,
+	virtual bool matchop(const expr &e, const expr &r,
 				std::map<placeholderT,expr> &st) const {
 		if (e.isleaf() || e.asnode()!=r.asnode()) return false;
 		auto &ce = e.children(), re = r.children();
