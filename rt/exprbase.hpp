@@ -3,6 +3,7 @@
 
 #include "gentree.hpp"
 #include <experimental/any>
+#include <experimental/optional>
 #include <unordered_map>
 #include <typeinfo>
 #include <typeindex>
@@ -18,26 +19,12 @@ auto MYany_cast(any &a) {
 	     return std::experimental::any_cast<T>(a);
 }
 
-
-struct allvarsT {};
 struct noexprT {};
 
-struct matcher {
-	virtual bool matches(const expr &e) const {
-		return false;
-	}
-};
-
-struct placeholderT {
-	placeholderT(int nn) : n(nn), m(new matcher()) {}
+struct constval {
+	any v;
 	template<typename T>
-	placeholderT(int nn, T &&mm) : n(nn), m(std::forward<T>(mm)) {}
-	int n;
-	std::shared_ptr<matcher> m;
-
-	bool operator<(const placeholderT &p) const {
-		return n<p.n;
-	}
+	constval(T val) : v{std::move(val)} {}
 };
 
 struct opinfo {
@@ -98,9 +85,22 @@ struct var : public std::shared_ptr<varinfo> {
 
 typedef any leaf;
 
+struct printableleafT {
+	virtual std::string name() { return ""; }
+};
+
+/*
+struct placeholder {
+	int num;
+};
+
+placeholder P(int i) { return placeholder{i}; }
+*/
+
 bool operator==(const leaf &a, const leaf &b) {
-     std::unordered_map<std::type_index,std::function<bool(const any &, const any &)>>
-          eqcmplookup =
+     std::unordered_map<std::type_index,
+		std::function<bool(const any &, const any &)>>
+          eqcmplookupconst =
            {
              {typeid(double),[](const any &a, const any &b)
 		    	{ return MYany_cast<double>(a) == MYany_cast<double>(b); }},
@@ -116,20 +116,31 @@ bool operator==(const leaf &a, const leaf &b) {
 		    	{ return MYany_cast<unsigned long>(a) == MYany_cast<unsigned long>(b); }},
              {typeid(unsigned long long),[](const any &a, const any &b)
 		    	{ return MYany_cast<unsigned long long>(a) == MYany_cast<unsigned long long>(b); }},
+		};
+
+     std::unordered_map<std::type_index,std::function<bool(const any &, const any &)>>
+          eqcmplookupleaf =
+           {
+			 {typeid(constval),[eqcmplookupconst](const any &a, const any &b)
+				 { constval aa = MYany_cast<constval>(a);
+					 constval bb = MYany_cast<constval>(b);
+					 return aa.v.type()==bb.v.type()
+						 && eqcmplookupconst.at(aa.v.type())(aa.v,bb.v);
+				 }},
 		   {typeid(var),[](const any &a, const any &b) 
 		     { return MYany_cast<var>(a) == MYany_cast<var>(b); }},
-		   {typeid(allvarsT),[](const any &a, const any &b) 
-		     { return true; }},
 		   {typeid(noexprT),[](const any &a, const any &b) 
 		     { return true; }},
-		   {typeid(placeholderT),[](const any &a, const any &b) 
-		     { return MYany_cast<placeholderT>(a).n
-				== MYany_cast<placeholderT>(b).n; }},
+		   /*
+		   {typeid(placeholder),[](const any &a, const any &b) 
+		     { return MYany_cast<placeholder>(a).num
+				== MYany_cast<placeholder>(b).num; }},
+				*/
 		   {typeid(op),[](const any &a, const any &b) 
 		     { return MYany_cast<op>(a) == MYany_cast<op>(b); }},
             };
 
-     return a.type()==b.type() && eqcmplookup[a.type()](a,b);
+     return a.type()==b.type() && eqcmplookupleaf.at(a.type())(a,b);
 }
 
 
@@ -155,10 +166,43 @@ struct uniopinfo : public opinfo {
 	}
 };
 
+struct opchain : public opinfo {
+	op baseop;
+	opchain(op bop) : baseop(bop),
+	opinfo(0,bop->name,bop->name+"C",bop->infix,bop->leftassoc,bop->prec) {}
+
+	virtual any opeval(const any &x1) const {
+		return x1;
+	}
+	virtual any opeval(const any &x1, const any &x2) const {
+		return baseop->opeval(x1,x2);
+	}
+	virtual any opeval(const any &x1, const any &x2, const any &x3) const {
+		if (leftassoc) return baseop->opeval(baseop->opeval(x1,x2),x3);
+		else baseop->opeval(x1,baseop->opeval(x2,x3));
+	}
+	virtual any opeval(const std::vector<any> &x) const {
+		if (leftassoc) return lefteval(*(x.begin()),x.begin()+1,x.end());
+		else return righteval(x.begin(),x.end());
+	}
+
+	template<typename I>
+		any lefteval(const any x, const I &b, const I &e) const {
+			if (b==e) return x;
+			return lefteval(baseop->opeval(x,*b),b+1,e);
+		}
+
+	template<typename I>
+		any righteval(const I &b, const I &e) const {
+			if (b+1==e) return *b;
+			return baseop->opeval(*b,righteval(b+1,e));
+		}
+};
+
 using expr = gentree<leaf,op>;
 
-const expr allvars{allvarsT{}};
 const expr noexpr {noexprT{}};
+
 
 template<typename T>
 expr newvar(const std::string &name) {
@@ -170,13 +214,64 @@ expr newvar(const std::string &name, const std::type_info &ti) {
 }
 
 template<typename T>
-expr newconst(const T &x) {
-	return {x};
+expr newconst(const T &v) {
+	return {constval{v}};
 }
 
 template<typename T>
-auto getconst(const expr &e) {
-	return MYany_cast<T>(e.asleaf());
+T getconst(const expr &e) {
+	return MYany_cast<T>(MYany_cast<constval>(e.asleaf()).v);
+}
+
+bool isconst(const expr &e) {
+	return e.isleaf() && e.asleaf().type()==typeid(constval);
+}
+
+bool isvar(const expr &e) {
+	return e.isleaf() && e.asleaf().type()==typeid(var);
+}
+
+bool isconstexpr(const expr &e,const optional<std::vector<expr>> &vars) {
+	if (e.isleaf()) {
+		if (isconst(e)) return true;
+		if (isvar(e)) {
+			if (vars) {
+				for(auto &v : *vars)
+					if (e.asleaf()==v.asleaf()) return false;
+				return true;
+			} else return false;
+		} else return false; // not var or const
+	} else {
+		for(auto &c : e.children())
+			if (isconstexpr(c,vars)) return false;
+		return true;
+	}
+}
+
+bool isconstexpr(const expr &e) {
+	return isconstexpr(e,optional<std::vector<expr>>{});
+}
+
+
+bool isnonconstexpr(const expr &e,const optional<std::vector<expr>> &vars) {
+	if (e.isleaf()) {
+		if (isconst(e)) return {};
+		if (isvar(e)) {
+			if (vars) {
+				for(auto &v : *vars)
+					if (e.asleaf()==v.asleaf()) return true;
+				return false;
+			} else return true;
+		} else return false; // not var or const
+	} else {
+		for(auto &c : e.children())
+			if (isnonconstexpr(c,vars)) return true;
+		return false;
+	}
+}
+
+bool isnonconstexpr(const expr &e) {
+	return isnonconstexpr(e,optional<std::vector<expr>>{});
 }
 
 #endif

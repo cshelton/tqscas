@@ -39,10 +39,12 @@ expr derivreal(const expr &e, const expr &x) {
 		auto df = derivreal(f,x);
 		return df/f;
 	}
+	/*
 	if (op==condop) {
 		auto &ch = e.children();
 		return {condop,ch[0],derivreal(ch[1],x),derivreal(ch[2],x)};
 	}
+	*/
 	if (op==switchop) {
 		auto &ch = e.children();
 		std::vector<expr> newch;

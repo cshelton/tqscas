@@ -3,6 +3,8 @@
 
 #include <string>
 #include "exprbase.hpp"
+#include "exprsubst.hpp"
+#include "exprmatch.hpp"
 #include <unordered_map>
 #include <typeinfo>
 #include <typeindex>
@@ -11,7 +13,7 @@
 
 std::string tostring(const any &x) {
 	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
-		tostringlookup =
+		tostringlookupconst =
 		 {
 		   {typeid(double),
 		    [](const any &x) { return std::to_string(MYany_cast<double>(x)); }},
@@ -30,7 +32,20 @@ std::string tostring(const any &x) {
 		   {typeid(long long),
 		    [](const any &x) { return std::to_string(MYany_cast<long long>(x)); }},
 		   {typeid(unsigned long long),
-		    [](const any &x) { return std::to_string(MYany_cast<unsigned long long>(x)); }}
+		    [](const any &x) { return std::to_string(MYany_cast<unsigned long long>(x)); }},
+		 };
+	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
+		tostringlookup =
+		 {
+		   {typeid(constval),
+			   [tostringlookupconst](const any &x) {
+				   constval c = MYany_cast<constval>(x);
+				   return tostringlookupconst.at(c.v.type())(c.v);
+			   }},
+		   {typeid(placeholder),
+		    [](const any &x) { return std::string("\\")+std::to_string(MYany_cast<placeholder>(x).num); }},
+		   {typeid(matchleaf),
+		    [](const any &x) { return MYany_cast<matchleaf>(x)->name(); }},
 		  };
 
 	return tostringlookup[x.type()](x);
@@ -46,7 +61,7 @@ std::string tostring(const expr &e) {
 				std::string ret;
 				if (!o->infix || ch.size()<=1) {
 					ret += o->name;
-					if (ch.size()>1) {
+					if (ch.size()>=1) {
 						ret += '(';
 						ret += ch[0].first;
 						for(int i=1;i<ch.size();i++) {

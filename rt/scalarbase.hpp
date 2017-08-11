@@ -23,6 +23,9 @@ const op multipliesop = toptr<binopinfo<std::multiplies<double>,double,double>>
 const op dividesop = toptr<binopinfo<std::divides<double>,double,double>>
 			(std::string("/"),true,true,4);
 
+const std::shared_ptr<opchain> pluschain = std::make_shared<opchain>(plusop);
+const std::shared_ptr<opchain> multiplieschain = std::make_shared<opchain>(multipliesop);
+
 template<typename T>
 struct power {
 	constexpr T operator()(const T &b, const T &e) const {
@@ -43,14 +46,23 @@ struct natlog {
 const op logop = toptr<uniopinfo<natlog<double>,double>>
 			(std::string("log"),false,false,5);
 
+
 expr operator+(const expr &e1, const expr &e2) {
-	return {plusop,e1,e2};
+	if (!e1.isleaf() && e1.asnode()==pluschain) {
+		auto ch = e1.children();
+		ch.emplace_back(e2);
+		return {pluschain,ch};
+	} else return {pluschain,e1,e2};
 }
 expr operator+(const double e1, const expr &e2) {
-	return {plusop,newconst(e1),e2};
+	return {pluschain,newconst(e1),e2};
 }
 expr operator+(const expr &e1, const double &e2) {
-	return {plusop,e1,newconst(e2)};
+	if (!e1.isleaf() && e1.asnode()==pluschain) {
+		auto ch = e1.children();
+		ch.emplace_back(newconst(e2));
+		return {pluschain,ch};
+	} else return {pluschain,e1,newconst(e2)};
 }
 
 expr operator-(const expr &e1, const expr &e2) {
@@ -64,13 +76,21 @@ expr operator-(const expr &e1, const double &e2) {
 }
 
 expr operator*(const expr &e1, const expr &e2) {
-	return {multipliesop,e1,e2};
+	if (!e1.isleaf() && e1.asnode()==multiplieschain) {
+		auto ch = e1.children();
+		ch.emplace_back(e2);
+		return {multiplieschain,ch};
+	} else return {multiplieschain,e1,e2};
 }
 expr operator*(const double e1, const expr &e2) {
-	return {multipliesop,newconst(e1),e2};
+	return {multiplieschain,newconst(e1),e2};
 }
 expr operator*(const expr &e1, const double &e2) {
-	return {multipliesop,e1,newconst(e2)};
+	if (!e1.isleaf() && e1.asnode()==multiplieschain) {
+		auto ch = e1.children();
+		ch.emplace_back(e2);
+		return {multiplieschain,ch};
+	} else return {multiplieschain,e1,newconst(e2)};
 }
 
 expr operator/(const expr &e1, const expr &e2) {
@@ -104,46 +124,11 @@ expr log(const expr &e) {
 constexpr double scalare = exp(1.0);
 
 expr exp(const expr &e) {
-	return {powerop,scalare,e};
+	return {powerop,newconst(scalare),e};
 }
 
-struct opchain : public opinfo {
-	op baseop;
-	opchain(op bop) : baseop(bop),
-		opinfo(0,bop->name,bop->name+"C",bop->infix,bop->leftassoc,bop->prec) {}
 
-	virtual any opeval(const any &x1) const {
-		return x1;
-	}
-	virtual any opeval(const any &x1, const any &x2) const {
-		return baseop->opeval(x1,x2);
-	}
-	virtual any opeval(const any &x1, const any &x2, const any &x3) const {
-		if (leftassoc) return baseop->opeval(baseop->opeval(x1,x2),x3);
-		else baseop->opeval(x1,baseop->opeval(x2,x3));
-	}
-	virtual any opeval(const std::vector<any> &x) const {
-		if (leftassoc) return lefteval(*(x.begin()),x.begin()+1,x.end());
-		else return righteval(x.begin(),x.end());
-	}
-
-	template<typename I>
-	any lefteval(const any x, const I &b, const I &e) const {
-		if (b==e) return x;
-		return lefteval(baseop->opeval(x,*b),b+1,e);
-	}
-
-	template<typename I>
-	any righteval(const I &b, const I &e) const {
-		if (b+1==e) return *b;
-		return baseop->opeval(*b,righteval(b+1,e));
-	}
-};
-
-
-const std::shared_ptr<opchain> pluschain = std::make_shared<opchain>(plusop);
-const std::shared_ptr<opchain> multiplieschain = std::make_shared<opchain>(multipliesop);
-
+/*
 template<typename T>
 struct condopinfo : public opinfo {
 	condopinfo() : opinfo(3,"?",false,false,15) {}
@@ -152,6 +137,7 @@ struct condopinfo : public opinfo {
 		return (MYany_cast<T>(x1)<0) ? MYany_cast<T>(x2) : MYany_cast<T>(x3);
 	}
 };
+*/
 
 template<typename T>
 struct switchopinfo : public opinfo {
@@ -172,26 +158,25 @@ struct switchopinfo : public opinfo {
 	}
 };
 
-const op condop = toptr<condopinfo<double>>();
+//const op condop = toptr<condopinfo<double>>();
 const op switchop = toptr<switchopinfo<double>>();
-
-
-expr abs(const expr &e) {
-	return {condop,e,-e,e};
-}
 
 template<typename E1, typename E2, typename E3>
 expr cond(E1 &&condition, E2 &&negexp, E3 &&posexp) {
-	return {condop,std::forward<E1>(condition),
-		std::forward<E2>(negexp), std::forward<E3>(posexp)};
+	return {switchop,std::forward<E1>(condition),
+		std::forward<E2>(negexp), newconst(0.0), std::forward<E3>(posexp)};
 }
 
-expr varargtovec(std::vector<expr> &ret) {
+expr abs(const expr &e) {
+	return cond(e,-e,e);
+}
+
+auto varargtovec(std::vector<expr> &ret) {
 	return ret;
 }
 
 template<typename E1, typename... Es>
-expr varargtovec(std::vector<expr> &ret, E1 &&e1, Es &&...es) {
+auto varargtovec(std::vector<expr> &ret, E1 &&e1, Es &&...es) {
 	ret.emplace_back(std::forward<E1>(e1));
 	return varargtovec(ret,std::forward<Es>(es)...);
 }
@@ -205,37 +190,6 @@ expr caseexpr(E1 &&condition, Es &&...exprs) {
 expr caseexpr(const expr &condexp, std::vector<expr> args) {
 	args.insert(args.begin(),condexp);
 	return {switchop,std::move(args)};
-}
-
-bool isconst(const expr &e1) {
-	return e1.isleaf() && e1.asleaf().type()==typeid(double);
-}
-
-bool isconstwrt(const expr &e1) {
-	return true;
-}
-
-template<typename... Ts>
-bool isconstwrt(const expr &e1, const expr &v, Ts &&...vs) {
-	if (v==allvars) return isconst(e1);
-	if (e1.isleaf()) {
-		if (e1==v) return false;
-		return isconstwrt(e1,std::forward<Ts>(vs)...);
-	}
-	for(auto &c : e1.children())
-		if (!isconstwrt(c,v,std::forward<Ts>(vs)...)) return false;
-	return true;
-}
-
-bool isconstwrt(const expr &e1, const std::vector<expr> &vs) {
-	for(auto &v : vs) if (v==allvars) return isconst(e1);
-	if (e1.isleaf()) {
-		for(auto &v : vs) if (e1==v) return false;
-		return true;
-	}
-	for(auto &c : e1.children())
-		if (!isconstwrt(c,vs)) return false;
-	return true;
 }
 
 #endif

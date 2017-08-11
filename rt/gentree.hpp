@@ -7,6 +7,14 @@
 #include <vector>
 #include <utility>
 #include <iostream>
+// to switch to std::optional when we get GCC 7
+#include <experimental/optional>
+
+template<typename T>
+using optional = std::experimental::optional<T>;
+// note, in_place construction no longer explicit when
+// move from std::experimental -> std, so we can remove much verbiage
+auto in_place = std::experimental::in_place;
 
 
 template<typename LT, typename NT>
@@ -100,8 +108,12 @@ class gentree {
 		gentree() : root(nullptr) {}
 
 		gentree(const gentree &t) : root(t.root) {}
-		gentree(gentree &t) : root(t.root) {}
 		gentree(gentree &&t) : root(std::move(t.root)) {}
+		// below needed to prevent "T &&" constructor below
+		// from matching -- this isn't ideal but works for the moment
+		// (see https://mpark.github.io/programming/2014/06/07/beware-of-perfect-forwarding-constructors/)
+		gentree(gentree &t) : root(t.root) {}
+		gentree(const gentree &&t) : root(std::move(t.root)) {}
 
 		gentree &operator=(const gentree &t) {
 			if (&t!=this) root = t.root;
@@ -112,6 +124,7 @@ class gentree {
 			return *this;
 		}
 
+		// do we need/want this??
 		template<typename T>
 		gentree(T &&l) : root(std::make_shared<treenodeT>(
 					std::forward<T>(l))) {
@@ -143,6 +156,35 @@ class gentree {
 			}
 		}
 
+		// F should map expr -> optional<expr>
+		// (if fn returns no value, then use existing (sub)tree)
+		template<typename F>
+		gentree map(F fn) const {
+			return map1(fn).value_or(*this);
+		}
+
+		template<typename F>
+		optional<gentree> map1(F fn) const {
+			auto newtree = fn(*this);
+			if (newtree) return newtree;
+			if (isleaf()) return {};
+			auto &ch = children();
+			std::vector<gentree> newch;
+			for(int i=0;i<ch.size();i++) {
+				auto nc = ch[i].map1(fn);
+				if (nc) {
+					if (newch.empty()) {
+						newch.reserve(ch.size());
+						for(int j=0;j<i;j++)
+							newch.emplace_back(ch[j]);
+					}
+					newch.emplace_back(*nc);
+				} else if (!newch.empty()) newch.emplace_back(ch[i]);
+			}
+			if (newch.empty()) return {};
+			return optional<gentree>{in_place,asnode(),newch};
+		}
+
 		// belong here or need a different fold?
 		bool operator==(const gentree &t) const {
 			if (!(isleaf()==t.isleaf())) return false;
@@ -156,6 +198,10 @@ class gentree {
 			for(int i=0;i<ch.size();i++)
 				if (!(ch[i]==tch[i])) return false;
 			return true;
+		}
+
+		bool operator!=(const gentree &t) const {
+			return !(*this==t);
 		}
 
 		bool sametree(const gentree &t) const {

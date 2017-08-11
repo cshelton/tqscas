@@ -3,118 +3,163 @@
 
 #include "exprtostr.hpp"
 #include "exprsubst.hpp"
+#include "exprmatch.hpp"
 #include <iostream>
+#include <memory>
 
 //#define SHOWRULES
 
 struct rewriterule {
-	virtual bool apply(expr &e) const { return false; }
-};
-
-struct binrewrite : public rewriterule {
-	op matchop;
-
-	binrewrite(op mop) : matchop(mop) {}
-
-	virtual bool apply(expr &e) const {
-		if (!e.isleaf() && e.asnode()==matchop) {
-			auto &ch = e.children();
-			if (valid(ch[0],ch[1])) {
-				e = exec(ch[0],ch[1]);
-				return true;
-			}
-		}
-		return false;
-	}
-
-	virtual bool valid(const expr &e1, const expr &e2) const
-		{ return false; }
-	virtual expr exec(const expr &e1, const expr &e2) const
-		{ return {matchop,e1,e2}; }
-};
-
-struct substrewrite : public rewriterule {
-	std::shared_ptr<placeholdermatcher> m;
-	expr pre,post;
-
-	substrewrite(expr before, expr after,
-			std::shared_ptr<placeholdermatcher> mm)
-		: pre(std::move(before)), post(std::move(after)), m(mm) {}
-	substrewrite(expr before, expr after) 
-		: pre(std::move(before)), post(std::move(after)) {
-			m = std::make_shared<placeholdermatcher();
-	}
-
-	virtual bool apply(expr &e) const {
-		std::vector<subst> st;
-		if (m->match(e,pre,st) && validsub(st)) {
-			e = substitute(post,st);
-			return true;
-		}
-		return false;
-	}
-
-	virtual bool validsub(const std::vector<subst> &st) const {
-		return true;
-	}
+	virtual optional<expr> apply(const expr &e) const { return {}; }
 };
 
 using ruleptr = std::shared_ptr<rewriterule>;
 
-bool runrules(expr &e, const std::vector<ruleptr> &rules) {
+optional<expr> runrules(const expr e, const std::vector<ruleptr> &rules) {
 	bool done=false;
 	bool ret = false;
-	//while(!done) {
-	//	done = true;
-		int i=0;
-		for(auto &r : rules) {
-			auto olde = e;
-			if (r->apply(e)) {
+	optional<expr> rete;
+	int i=0;
+	for(auto &r : rules) {
+		if (auto newe = r->apply(rete.value_or(e))) {
 #ifdef SHOWRULES
-				std::cout << "===== (" << i << ")" << std::endl;
-				std::cout << "changed " << std::endl;
-				std::cout << draw(olde) << " to " << std::endl;
-			    	std::cout << draw(e);
-			    	std::cout << "-----------" << std::endl;
+			std::cout << "===== (" << i << ")" << std::endl;
+			std::cout << "changed " << std::endl;
+			std::cout << draw(rete.value_or(e)) << " to " << std::endl;
+			std::cout << draw(*newe);
+			std::cout << "-----------" << std::endl;
 #endif
-	//			done = false;
-				ret = true;
-				break;
-			}
-			++i;
+			ret = true;
+			rete = newe;
+			break;
 		}
-	//}
-	return ret;
+		++i;
+	}
+	return rete;
 }
 
-expr rewrite(expr e, const std::vector<ruleptr> &rules, bool &madechange) {
-	madechange = false;
-	bool cont = false;
-	do {
+optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules);
+
+optional<expr> rewrite1(const expr &e, const std::vector<ruleptr> &rules) {
+	if (!e.isleaf()) {
+		std::vector<expr> ch = e.children();
+		bool changed = false;
+		for(auto &c : ch) {
+			auto newc = rewritemaybe(c,rules);
+			if (newc) {
+				c = *newc;
+				changed = true;
+			}
+		}
+		if (changed) {
+			expr rete = expr(e.asnode(),ch);
+			auto res = runrules(rete,rules);
+			if (res) return res;
+			return {rete};
+		}
+	}
+	return runrules(e,rules);
+}
+
+optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules) {
+	optional<expr> rete = rewrite1(e,rules);
+	if (!rete) return {};
+	while(true) {
+		auto newr = rewrite1(*rete,rules);
+		if (!newr) return rete;
+		rete = newr;
+	}
+}
+
+// perhaps should be written in terms of e.map???
+expr rewrite(const expr &e, const std::vector<ruleptr> &rules) {
+	return rewritemaybe(e,rules).value_or(e);
+}
+
+struct optochain : public rewriterule {
+	std::shared_ptr<opchain> cop;
+
+	optochain(std::shared_ptr<opchain> chainop) : cop(chainop) {}
+
+	virtual optional<expr> apply(const expr &e) const {
 		if (!e.isleaf()) {
-			std::vector<expr> ch = e.children();
-			bool changed = false;
-			for(auto &c : ch) {
-				bool mch = false;
-				auto newc = rewrite(c,rules,mch);
-				if (mch) {
-					c = newc;
-					changed = true;
-					madechange = true;
-				}
-			}
-			if (changed) e = expr(e.asnode(),ch);
+			auto &n = e.asnode();
+			if (n==cop->baseop)
+				return optional<expr>{in_place,
+					std::static_pointer_cast<opinfo>(cop),e.children()};
 		}
-		cont = runrules(e,rules);
-		madechange |= cont;
-	} while(cont);
-	return e;
+		return {};
+	}
+};
+
+struct collapsechain : public rewriterule {
+	op cop;
+	bool assoc;
+
+	collapsechain(op chainop, bool isassoc=true)
+		: cop(chainop), assoc(isassoc) {}
+
+	virtual optional<expr> apply(const expr &e) const {
+		if (e.isleaf()) return {};
+		auto &n = e.asnode();
+		if (n!=cop) return {};
+		auto &ch = e.children();
+		int nnewch = 0;
+		bool cont=false;
+		for(auto &c : ch) 
+			if (!c.isleaf() && c.asnode()==cop) {
+				cont = true;
+				nnewch += c.children().size()-1;
+			}
+		if (!cont) return {};
+		std::vector<expr> newch;
+		newch.reserve(ch.size()+nnewch);
+		for(auto &c : ch) {
+			if (c.isleaf() || c.asnode()!=cop)
+				newch.emplace_back(c);
+			else {
+				for(auto &c2 : c.children())
+					newch.emplace_back(c2);
+			}
+		}
+		return optional<expr>{in_place,cop,newch};
+	}
+};
+
+struct matchrewrite : public rewriterule {
+	expr search, replace;
+
+	template<typename E1, typename E2>
+	matchrewrite(E1 &&pattern, E2 &&newexp)
+			: search(std::forward<E1>(pattern)),
+			  replace(std::forward<E2>(newexp)) {}
+
+	virtual optional<expr> apply(const expr &e) const {
+		auto m = match(e,search);
+		if (m) return substitute(replace,*m);
+		else return {};
+	}
+};
+
+template<typename E1, typename E2>
+ruleptr SR(E1 &&pattern, E2 &&newexp) {
+	return std::make_shared<matchrewrite>(std::forward<E1>(pattern),
+								std::forward<E2>(newexp));
 }
 
-expr rewrite(expr e, const std::vector<ruleptr> &rules) {
-	bool c;
-	return rewrite(std::move(e),rules,c);
-}
+struct consteval : public rewriterule {
+	virtual optional<expr> apply(const expr &e) const {
+		if (e.isleaf()) return {};
+		auto &ch = e.children();
+		for(auto &c : ch) 
+			if (!isconst(c)) return {};
+		std::vector<any> subexpr;
+		subexpr.reserve(ch.size());
+		for(auto &c : ch)
+			subexpr.emplace_back(MYany_cast<constval>(c.asleaf()).v);
+		return optional<expr>{in_place,newconst(e.asnode()->eval(subexpr))};
+	}
+};
 
-#undef MYany_cast
+
 #endif

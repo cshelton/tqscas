@@ -1,0 +1,13 @@
+Current (miopic) list:
+	- Add "switch" rewrites to scalarrewrite.hpp
+	- Redo der and int to be operators with rewrite rules and (numeric) evals
+	- Add specialization of rewrites by list of vars
+
+Longer / Maybe:
+	- fix conversion of constant to expr 
+	- Add ability of mathces to pertain only to a particular type
+	- Add "domain" of exprs
+	- Add comparison operators (maybe redo switches in that case?)
+	- Add "min" and "max" to scalars (using switches)
+	- Add matrices
+	- Add ranges / sets ?
