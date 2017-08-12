@@ -2,6 +2,7 @@
 #define EXPRSUBST_HPP
 
 #include "exprbase.hpp"
+#include "exprmatch.hpp"
 #include <map>
 
 expr substitute(const expr &e, const expr &x, const expr &v) {
@@ -54,7 +55,7 @@ expr P7_ = P(7);
 expr P8_ = P(8);
 expr P9_ = P(9);
 
-expr substitute(const expr &e, const std::map<int,expr> st) {
+expr substitute(const expr &e, const exprmap st) {
 	return e.map([st](const expr &ex) {
 			if (ex.isleaf() && ex.asleaf().type()==typeid(placeholder)) {
 				int n = MYany_cast<placeholder>(ex.asleaf()).num;

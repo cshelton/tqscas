@@ -2,8 +2,8 @@
 #define EXPRREWRITE_HPP
 
 #include "exprtostr.hpp"
-#include "exprsubst.hpp"
 #include "exprmatch.hpp"
+#include "exprsubst.hpp"
 #include <iostream>
 #include <memory>
 
@@ -82,12 +82,8 @@ struct optochain : public rewriterule {
 	optochain(std::shared_ptr<opchain> chainop) : cop(chainop) {}
 
 	virtual optional<expr> apply(const expr &e) const {
-		if (!e.isleaf()) {
-			auto &n = e.asnode();
-			if (n==cop->baseop)
-				return optional<expr>{in_place,
-					std::static_pointer_cast<opinfo>(cop),e.children()};
-		}
+		if (isop(e,cop->baseop))
+			return optional<expr>{in_place,cop,e.children()};
 		return {};
 	}
 };
@@ -107,7 +103,7 @@ struct collapsechain : public rewriterule {
 		int nnewch = 0;
 		bool cont=false;
 		for(auto &c : ch) 
-			if (!c.isleaf() && c.asnode()==cop) {
+			if (isop(c,cop)) {
 				cont = true;
 				nnewch += c.children().size()-1;
 			}
@@ -115,7 +111,7 @@ struct collapsechain : public rewriterule {
 		std::vector<expr> newch;
 		newch.reserve(ch.size()+nnewch);
 		for(auto &c : ch) {
-			if (c.isleaf() || c.asnode()!=cop)
+			if (!isop(c,cop))
 				newch.emplace_back(c);
 			else {
 				for(auto &c2 : c.children())
@@ -141,10 +137,34 @@ struct matchrewrite : public rewriterule {
 	}
 };
 
+template<typename F>
+struct matchrewritecond : public rewriterule {
+	expr search, replace;
+	F condition;
+
+	template<typename E1, typename E2>
+	matchrewritecond(E1 &&pattern, E2 &&newexp, F c)
+			: search(std::forward<E1>(pattern)),
+			  replace(std::forward<E2>(newexp)),
+    			  condition(std::move(c)) {}
+
+	virtual optional<expr> apply(const expr &e) const {
+		auto m = match(e,search);
+		if (m && condition(*m)) return substitute(replace,*m);
+		else return {};
+	}
+};
+
 template<typename E1, typename E2>
 ruleptr SR(E1 &&pattern, E2 &&newexp) {
 	return std::make_shared<matchrewrite>(std::forward<E1>(pattern),
 								std::forward<E2>(newexp));
+}
+
+template<typename E1, typename E2, typename F>
+ruleptr SR(E1 &&pattern, E2 &&newexp, F condition) {
+	return std::make_shared<matchrewritecond<F>>(std::forward<E1>(pattern),
+					std::forward<E2>(newexp), std::move(condition));
 }
 
 struct consteval : public rewriterule {
@@ -161,5 +181,12 @@ struct consteval : public rewriterule {
 	}
 };
 
+struct evalateval : public rewriterule {
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,evalatop)) return {};
+		auto &ch = e.children();
+		return optional<expr>{in_place,substitute(ch[1],ch[0],ch[2])};
+	}
+};
 
 #endif

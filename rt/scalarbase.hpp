@@ -143,7 +143,7 @@ template<typename T>
 struct switchopinfo : public opinfo {
 	// children: <test> <val1> <thresh1> <val2> <thresh2>
 	// 			... <valn> <threshn> <valn+1>
-	// threshs should be constants and in sorted order! (?)
+	// threshs should be constants (?) and in sorted order (?)
 	// evals to vali iff test<threshi and test>=thresh j forall j<i
 	// evals to valn+1 iff test>=threshn
 	
@@ -190,6 +190,27 @@ expr caseexpr(E1 &&condition, Es &&...exprs) {
 expr caseexpr(const expr &condexp, std::vector<expr> args) {
 	args.insert(args.begin(),condexp);
 	return {switchop,std::move(args)};
+}
+
+template<typename T>
+struct derivopinfo : public scopeinfo {
+	// 3 children: v, e, val
+	// represents de/dx at v=val
+	// (where v is local variable, as per scopeinfo)
+	derivopinfo() : scopeinfo(3,"d",false,false,5) {}
+};
+
+const op derivop = toptr<derivopinfo<double>>();
+
+expr deriv(const expr &e, const expr &x) {
+	if (!isvar(x)) return noexpr;
+	expr localx = newvar(getvartype(x));
+	return {derivop,localx,substitute(e,x,localx),x};
+}
+
+// be careful using... localx must appear in e (and x should probably not!)
+expr deriv(const expr &e, const expr &localx, const expr &x) {
+	return {derivop,localx,e,x};
 }
 
 #endif

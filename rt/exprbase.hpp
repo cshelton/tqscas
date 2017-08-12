@@ -5,6 +5,8 @@
 #include <experimental/any>
 #include <experimental/optional>
 #include <unordered_map>
+#include <unordered_set>
+#include <set>
 #include <typeinfo>
 #include <typeindex>
 
@@ -69,6 +71,7 @@ struct opinfo {
 
 typedef std::shared_ptr<opinfo> op;
 
+
 struct varinfo {
 	std::string name;
 	const std::type_info &t;
@@ -82,6 +85,16 @@ struct var : public std::shared_ptr<varinfo> {
 	var(varinfo &&vi) :
 		std::shared_ptr<varinfo>(std::make_shared<varinfo>(std::move(vi))) {}
 };
+
+namespace std { 
+	template<> struct hash<var> {
+		typedef var argument_type;
+		typedef std::size_t result_type;
+		result_type operator()(argument_type const &s) const {
+			return std::hash<std::shared_ptr<varinfo>>{}(s);
+		}
+	};
+}
 
 typedef any leaf;
 
@@ -199,19 +212,54 @@ struct opchain : public opinfo {
 		}
 };
 
-using expr = gentree<leaf,op>;
+// abstract, for operations (like sum, deriv, integral)
+//  that introduce a local variable
+//  This just flags that the first child is
+//    the new local variable
+struct scopeinfo : public opinfo {
+	using opinfo::opinfo;
 
+	virtual any opeval(const any &x1) const {
+		return {}; // v should never be a constant!
+	}
+};
+
+struct evalatinfo : public scopeinfo {
+	// 3 children: v, e, val
+	// represents evaluating e where variable v is replaced by val
+	evalatinfo(): scopeinfo(3,"eval",false,false,5) {}
+};
+
+const op evalatop  = std::make_shared<evalatinfo>();
+
+using expr = gentree<leaf,op>;
 const expr noexpr {noexprT{}};
 
+expr evalat(const expr &e, const expr &localx, const expr &x) {
+	return {evalatop,localx,e,x};
+}
+
+
+expr newvar(const std::string &name, const std::type_info &ti) {
+	return var{varinfo(name,ti)};
+}
 
 template<typename T>
 expr newvar(const std::string &name) {
 	return var{varinfo(name,typeid(T))};
 }
 
-expr newvar(const std::string &name, const std::type_info &ti) {
-	return var{varinfo(name,ti)};
+std::size_t globalvarnum__ = 0;
+
+expr newvar(const std::type_info &ti) {
+	return newvar(std::string("__")+std::to_string(++globalvarnum__),ti);
 }
+
+template<typename T>
+expr newvar() {
+	return newvar<T>(typeid(T));
+}
+
 
 template<typename T>
 expr newconst(const T &v) {
@@ -223,6 +271,26 @@ T getconst(const expr &e) {
 	return MYany_cast<T>(MYany_cast<constval>(e.asleaf()).v);
 }
 
+var getvar(const expr &e) {
+	return MYany_cast<var>(e.asleaf());
+}
+
+
+const std::type_info &getvartype(const expr &e) {
+    return (MYany_cast<var>(e.asleaf()))->t;
+}
+
+template<typename T>
+bool isop(const expr &e) {
+	if (e.isleaf()) return false;
+	auto p = std::dynamic_pointer_cast<T>(e.asnode());
+	return (bool)p;
+}
+
+bool isop(const expr &e, op o) {
+	return !e.isleaf() && e.asnode()==o;
+}
+
 bool isconst(const expr &e) {
 	return e.isleaf() && e.asleaf().type()==typeid(constval);
 }
@@ -231,47 +299,84 @@ bool isvar(const expr &e) {
 	return e.isleaf() && e.asleaf().type()==typeid(var);
 }
 
-bool isconstexpr(const expr &e,const optional<std::vector<expr>> &vars) {
+using vset = std::unordered_set<var>;
+using vmap = std::unordered_map<var,var>;
+
+// do not call!
+bool isconstexpr1(const expr &e,
+		const optional<vset> &vars,
+		vset &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return true;
-		if (isvar(e)) {
-			if (vars) {
-				for(auto &v : *vars)
-					if (e.asleaf()==v.asleaf()) return false;
-				return true;
-			} else return false;
-		} else return false; // not var or const
+		if (!isvar(e)) return false;
+		var v = getvar(e);
+		return (vars && vars->find(v)==vars->end())
+				|| exceptvars.find(v)!=exceptvars.end();
 	} else {
+		auto n = std::dynamic_pointer_cast<scopeinfo>(e.asnode());
+		if (n) {
+			auto v = getvar(e.children()[0]);
+			exceptvars.emplace(v);
+		}
 		for(auto &c : e.children())
-			if (isconstexpr(c,vars)) return false;
+			// no need to undo changes to exceptvars, because 
+			// we will return false all the way back to the top
+			if (!isconstexpr1(c,vars,exceptvars)) return false;
+		if (n) {
+			auto v = getvar(e.children()[0]);
+			exceptvars.erase(v);
+		}
 		return true;
 	}
 }
 
-bool isconstexpr(const expr &e) {
-	return isconstexpr(e,optional<std::vector<expr>>{});
+// vars == empty => "all vars"
+bool isconstexpr(const expr &e, const optional<vset> &vars = {}) {
+	vset ex;
+	return isconstexpr1(e,vars,ex);
 }
 
+bool isconstexpr(const expr &e, const var &v) {
+    vset ex;
+    optional<vset> vars{in_place,{v}};
+    return isconstexpr1(e,vars,ex);
+}
+	    
 
-bool isnonconstexpr(const expr &e,const optional<std::vector<expr>> &vars) {
+// do not call!
+bool isnonconstexpr1(const expr &e,
+		const optional<vset> &vars,
+		vset &exceptvars) {
 	if (e.isleaf()) {
-		if (isconst(e)) return {};
-		if (isvar(e)) {
-			if (vars) {
-				for(auto &v : *vars)
-					if (e.asleaf()==v.asleaf()) return true;
-				return false;
-			} else return true;
-		} else return false; // not var or const
+		if (isconst(e)) return false;
+		if (!isvar(e)) return false; // (not sure what to place here...
+						// ... only reason this isn't !isconstexpr
+		var v = getvar(e);
+		return (!vars || vars->find(v)!=vars->end())
+				&& exceptvars.find(v)==exceptvars.end();
 	} else {
+		auto n = std::dynamic_pointer_cast<scopeinfo>(e.asnode());
+		if (n) {
+			auto v = getvar(e.children()[0]);
+			exceptvars.emplace(v);
+		}
 		for(auto &c : e.children())
-			if (isnonconstexpr(c,vars)) return true;
+			// no need to undo changes to exceptvars, because 
+			// we will return true all the way back to the top
+			if (isnonconstexpr1(c,vars,exceptvars)) return true;
+		if (n) {
+			auto v = getvar(e.children()[0]);
+			exceptvars.erase(v);
+		}
 		return false;
 	}
 }
 
-bool isnonconstexpr(const expr &e) {
-	return isnonconstexpr(e,optional<std::vector<expr>>{});
+// vars == empty => "all vars"
+bool isnonconstexpr(const expr &e,
+		const optional<vset> &vars = {}) {
+	vset ex;
+	return isnonconstexpr1(e,vars,ex);
 }
 
 #endif

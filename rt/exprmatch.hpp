@@ -4,8 +4,10 @@
 #include "exprbase.hpp"
 #include <numeric>
 #include <algorithm>
+#include <map>
 
-using opexprmap = optional<std::map<int,expr>>;
+using exprmap = std::map<int,expr>;
+using opexprmap = optional<exprmap>;
 
 struct matchop : public opinfo {
 	matchop(std::size_t na, const std::string &n, bool inf, bool la, int pr) 
@@ -62,9 +64,9 @@ struct matchconst : public matchleafT {
 };
 
 struct matchconstwrt : public matchleafT {
-	optional<std::vector<expr>> vars;
+	optional<vset> vars;
 	matchconstwrt() : vars{} {};
-	matchconstwrt(std::vector<expr> vs) : vars{in_place,std::move(vs)} {}
+	matchconstwrt(vset vs) : vars{in_place,std::move(vs)} {}
 
 	virtual opexprmap match(const expr &e) const {
 		return isconstexpr(e,vars) ? opexprmap{in_place} : opexprmap{};
@@ -75,9 +77,9 @@ struct matchconstwrt : public matchleafT {
 };
 
 struct matchnonconstwrt : public matchleafT {
-	optional<std::vector<expr>> vars;
+	optional<vset> vars;
 	matchnonconstwrt() : vars{} {};
-	matchnonconstwrt(std::vector<expr> vs) : vars{in_place,std::move(vs)} {}
+	matchnonconstwrt(vset vs) : vars{in_place,std::move(vs)} {}
 
 	virtual opexprmap match(const expr &e) const {
 		return isnonconstexpr(e,vars) ? opexprmap{in_place} : opexprmap{};
@@ -106,7 +108,7 @@ bool opsmatch(const expr &e1, const expr &e2) {
 	return n1==n2;
 }
 
-bool mergemap(std::map<int,expr> &orig, const std::map<int,expr> &toadd) {
+bool mergemap(exprmap &orig, const exprmap &toadd) {
 	for(auto &p : toadd) {
 		auto loc = orig.emplace(p);
 		if (!loc.second && loc.first->second != p.second) return false;
@@ -119,7 +121,7 @@ opexprmap match(const expr &e, const expr &pat) {
 		auto patleaf = pat.asleaf();
 		if (patleaf.type()==typeid(matchleaf))
 			return MYany_cast<matchleaf>(patleaf)->match(e);
-		if (e==pat) return opexprmap{in_place,std::map<int,expr>{}};
+		if (e==pat) return opexprmap{in_place};
 		return {};
 	} else {
 		std::shared_ptr<matchop> mop
@@ -128,7 +130,7 @@ opexprmap match(const expr &e, const expr &pat) {
 		if (!opsmatch(e,pat)
 			|| e.children().size() != pat.children().size())
 				return {};
-		std::map<int,expr> retmap;
+		exprmap retmap;
 		for(int i=0;i<pat.children().size();i++) {
 			auto r = match(e.children()[i],pat.children()[i]);
 			if (!r || !mergemap(retmap,*r)) return {};
@@ -210,7 +212,7 @@ struct matchremainderop : public matchmodop {
 		auto ech = e.children();
 		if (ech.size()<matchch.size()) return {};
 		if (ech.size()==matchch.size()) return ::match(e,me);
-		std::map<int,expr> retmap;
+		exprmap retmap;
 		for(int i=0;i<matchch.size()-1;i++) {
 			auto r = ::match(ech[i],matchch[i]);
 			if (!r || !mergemap(retmap,*r)) return {};

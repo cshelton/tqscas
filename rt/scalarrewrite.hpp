@@ -45,26 +45,28 @@ expr chainpatternmod(const expr &e) {
 
 
 struct sortchildren : public rewriterule {
-	optional<std::vector<expr>> vars;
+	optional<vset> vars;
 	std::vector<op> cops;
 
 	sortchildren(std::vector<op> comops)
 		: cops(comops), vars{} { }
-	sortchildren(std::vector<op> comops, std::vector<expr> v)
+	sortchildren(std::vector<op> comops, vset v)
 		: cops(comops), vars(in_place,std::move(v)) {}
 
 	int typeorder(const expr &e) const {
+		// TODO: use map/unordered_map
 		if (isconst(e)) return 0;
-		int add = (isconstexpr(e,vars) ? 2 : 9);
-		if (e.isleaf()) return -1+add;
+		int add = (isconstexpr(e,vars) ? 0 : 9);
+		if (e.isleaf()) return 1+add;
 		auto &op = e.asnode();
-		if (op==plusop || op==pluschain) return 0+add;
-		if (op==multipliesop || op==multiplieschain) return 1+add;
-		if (op==powerop) return 2+add;
-		if (op==logop) return 3+add;
-		//if (op==condop || op==switchop) return 4+add;
-		if (op==switchop) return 4+add;
-		return 5+add;
+		if (op==plusop || op==pluschain) return 2+add;
+		if (op==multipliesop || op==multiplieschain) return 3+add;
+		if (op==powerop) return 4+add;
+		if (op==logop) return 5+add;
+		if (op==switchop) return 6+add;
+		if (op==derivop) return 7+add;
+		if (op==evalatop) return 8+add;
+		return 9+add;
 	}
 
 	int secondordering(const expr &e1, const expr &e2) const {
@@ -108,10 +110,136 @@ struct sortchildren : public rewriterule {
 							return exprcmp(e1,e2)<0;
 						}
 				);
-				auto node = e.asnode();
-				return optional<expr>{in_place,node,che};
+				return optional<expr>{in_place,e.asnode(),che};
 			}
 		return {};
+	}
+};
+
+
+struct normswitch : public rewriterule {
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,switchop)) return {};
+		auto &c0 = e.children()[0];
+		expr tosub = newconst(0.0);
+		if (c0.isleaf()) {
+			if (!isconst(c0) || getconst<double>(c0)==0.0)
+				return {};
+			tosub = c0;
+		} else {
+			if (!isop(c0,pluschain) || c0.children().empty()
+					|| !isconst(c0.children()[0])
+					|| getconst<double>(c0.children()[0])==0.0)
+				return {};
+			tosub = c0.children()[0];
+		}
+		std::vector<expr> newch(e.children());
+		for (int i=0;i<newch.size();i+=2)
+			newch[i] = newch[i] - tosub;
+		return optional<expr>{in_place,e.asnode(),newch};
+	}
+};
+
+struct liftswitch : public rewriterule {
+	static expr replacech(const expr &e, int chi, const expr &ch) {
+		auto &ech = e.children();
+		std::vector<expr> newch;
+		newch.reserve(ech.size());
+		for(int i=0;i<ech.size();i++)
+			if (i==chi) newch.emplace_back(ch);
+			else newch.emplace_back(ech[i]);
+		return {e.asnode(),newch};
+	}
+
+	virtual optional<expr> apply(const expr &e) const {
+		if (e.isleaf() || e.asnode()==switchop) return {};
+		auto &ch = e.children();
+		for(int i=0;i<ch.size();i++)
+			if (isop(ch[i],switchop)) {
+				auto &sch = ch[i].children();
+				std::vector<expr> newch;
+				for(int j=0;j<sch.size();j+=2) {
+					newch.emplace_back(sch[j]);
+					newch.emplace_back(replacech(e,i,sch[j+1]));
+				}
+				return optional<expr>{in_place,switchop,newch};
+			}
+		return {};
+	}
+};
+
+struct squeezeswitch : public rewriterule {
+	virtual optional<expr> apply(expr &e) const {
+		if (!isop(e,switchop)) return {};
+		auto &ch = e.children();
+		if (ch.size()<5) {
+			if (ch[1]==ch[3]) // technically, this might expand
+				// the domain (if ch[0] is undefined in places)
+				return optional<expr>{in_place,ch[1]};
+			return {};
+		}
+		for(int i=2;i<ch.size()-1;i+=2)
+			if (ch[i-1]==ch[i+1]) {
+				std::vector<expr> newch;
+				newch.reserve(ch.size()-2);
+				for(int j=0;j<i;j++) newch.emplace_back(ch[j]);
+				for(int j=i+2;j<ch.size();j++) newch.emplace_back(ch[j]);
+				return optional<expr>{in_place,e.asnode(),newch};
+			}
+		return {};
+	}
+};
+
+
+struct mergeswitch : public rewriterule {
+	static bool ismergeable(const expr &e, const expr &te, bool checkte=true) {
+		if (!isop(e,switchop)) return false;
+		auto &ch = e.children();
+		if (checkte && !(ch[0]==te)) return false;
+		double lastk = 0;
+		for(int i=2;i<ch.size();i+=2) {
+			if (!isconst(ch[i])) return false;
+			if (i>2) {
+				double newk = getconst<double>(ch[i]);
+				if (newk<lastk) return false;
+				lastk = newk;
+			}
+		}
+		return true;
+	}
+
+	virtual optional<expr> apply(expr &e) const {
+		if (!ismergeable(e,e,false)) return {};
+		auto &ch = e.children();
+		int mchi = -1;
+		double preth = -std::numeric_limits<double>::infinity();
+		double postth = std::numeric_limits<double>::infinity();
+		for(int i=1;i<ch.size();i+=2)
+			if (ismergeable(ch[i],ch[0])) {
+				mchi = i;
+				if (i>1) preth = getconst<double>(ch[i-1]);
+				if (i+1 < ch.size()) postth = getconst<double>(ch[i+1]);
+				break;
+			}
+		if (mchi==-1) return {};
+
+		auto &mch = ch[mchi].children();
+		std::vector<expr> newch;
+		for(int i=0;i<mchi;i++)
+			newch.emplace_back(ch[i]);
+		newch.reserve(ch.size()+mch.size()-2);
+		for(int i=1;i<mch.size();i+=2) {
+			double th = (i+1<mch.size() ? getconst<double>(mch[i+1])
+							: std::numeric_limits<double>::infinity());
+			if (th > preth) {
+				newch.emplace_back(mch[i]);
+				if (th < postth && i+1<mch.size()) newch.emplace_back(mch[i+1]);
+				else break;
+			}
+		}
+		for(int i=mchi+1;i<ch.size();i++)
+			newch.emplace_back(ch[i]);
+		return optional<expr>{in_place,e.asnode(),newch};
 	}
 };
 
@@ -119,10 +247,16 @@ ruleptr SRR(const expr &s, const expr &p) {
 	return SR(chainpatternmod(s),p);
 }
 
+template<typename F>
+ruleptr SRR(const expr &s, const expr &p, F &&f) {
+	return SR(chainpatternmod(s),p,std::forward<F>(f));
+}
+
+// TODO:  will need to be separated out into general and specific to scalars
 std::vector<ruleptr> scalarruleset 
-	{{std::dynamic_pointer_cast<rewriterule>(std::make_shared<consteval>()),
-	  std::dynamic_pointer_cast<rewriterule>(std::make_shared<sortchildren>(
-				  std::vector<op>{pluschain,multiplieschain})),
+	{{toptr<consteval>(),
+	  toptr<evalateval>(),
+	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
 
   SRR(E1_ - E2_                          ,  P1_ + -1*P2_                     ),
   SRR(-E1_                               ,  -1*P1_                           ),
@@ -136,8 +270,12 @@ std::vector<ruleptr> scalarruleset
   SRR(E1_ * (E2_ * E3_)                  ,  P1_ * P2_ * P3_                  ),
   SRR( E1_ * (E2_ * E3_) * E4_           ,  P1_ * P2_ * P3_ * P4_            ),
   */
-  std::dynamic_pointer_cast<rewriterule>(std::make_shared<collapsechain>(pluschain,true)),
-  std::dynamic_pointer_cast<rewriterule>(std::make_shared<collapsechain>(multiplieschain,true)),
+  toptr<collapsechain>(pluschain,true),
+  toptr<collapsechain>(multiplieschain,true),
+  toptr<normswitch>(),
+  toptr<mergeswitch>(),
+  toptr<squeezeswitch>(),
+  toptr<liftswitch>(),
 
   // some of these are only true "almost everywhere"
   // and might need to be removed for some applications
@@ -155,6 +293,7 @@ std::vector<ruleptr> scalarruleset
   SRR( E1_ * E1_                          ,  pow(P1_,2.0)                    ),
   SRR( E1_ * E1_ * E2_                    ,  pow(P1_,2.0)*P2_                ),
 
+  SRR( K1_*(W2_ + W3_)                    ,  P1_*P2_ + P1_*P3_               ),
 
   SRR( K1_*E2_ + K3_*E2_                  ,  (P1_+P3_) * P2_                 ),
   SRR( K1_*E2_ + K3_*E2_ + E4_            ,  (P1_+P3_) * P2_ + P4_           ),
@@ -176,10 +315,22 @@ std::vector<ruleptr> scalarruleset
   SRR( pow(K1_,E3_)*pow(K2_,E3_)          ,  pow(P1_*P2_,P3_)                ),
 
   SRR( log(pow(E1_,E2_))                  ,  P2_*log(P1_)                    ),
-
   SRR( log(E1_*E2_)                       ,  log(P1_) + log(P2_)             ),
 
-  SRR( K1_*(W2_ + W3_)                    ,  P1_*P2_ + P1_*P3_               ),
+  SRR( deriv(E1_,V2_,V3_)                 ,  newconst(0.0),
+      [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); }),
+  SRR( deriv(V1_,V1_,V3_)                 ,  newconst(1.0)                   ),
+
+  SRR( deriv(E1_+E2_,V3_,V4_)             ,
+		                           deriv(P1_,P3_,P4_) + deriv(P2_,P3_,P4_) ),
+  SRR( deriv(E1_*E2_,V3_,V4_)             ,
+		     deriv(P1_,P3_,P4_)*evalat(P2_,P3_,P4_)
+		  + evalat(P1_,P3_,P4_)* deriv(P2_,P3_,P4_)                        ),
+  SRR( deriv(pow(E1_,E2_),V3_,V4_)        ,
+	  evalat(pow(P1_,P2_),P3_,P4_)*evalat(log(P1_),P3_,P4_)*deriv(P2_,P3_,P4_)
+	+ evalat(P2_,P3_,P4_)*evalat(pow(P1_,P2_-1),P3_,P4_)*deriv(P1_,P3_,P4_) ),
+  SRR( deriv(log(E1_),V2_,V3_)            ,
+		                          deriv(P1_,P2_,P3_) / evalat(P1_,P2_,P3_) ),
 
 	 }};
 
