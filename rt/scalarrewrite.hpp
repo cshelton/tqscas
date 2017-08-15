@@ -5,6 +5,8 @@
 #include "exprrewrite.hpp"
 #include "exprmatch.hpp"
 #include <algorithm>
+//#include <boost/logiclogic/tribool>
+#include "scalarrange.hpp"
 
 bool isgenexp(const expr &e) {
 	if (e.isleaf()) {
@@ -43,7 +45,6 @@ expr chainpatternmod(const expr &e) {
 		});
 }
 
-
 struct sortchildren : public rewriterule {
 	optional<vset> vars;
 	std::vector<op> cops;
@@ -63,7 +64,8 @@ struct sortchildren : public rewriterule {
 		if (op==multipliesop || op==multiplieschain) return 3+add;
 		if (op==powerop) return 4+add;
 		if (op==logop) return 5+add;
-		if (op==switchop) return 6+add;
+		//if (op==switchop) return 6+add;
+		if (op==absop) return 6+add;
 		if (op==derivop) return 7+add;
 		if (op==evalatop) return 8+add;
 		return 9+add;
@@ -116,7 +118,164 @@ struct sortchildren : public rewriterule {
 	}
 };
 
+scalarset<double> rangeprop(const expr &e) {
+	if (isconst(e)) {
+		return {getconst<double>(e)};
+	}
+	if (isop(e,pluschain)) {
+		auto &ch = e.children();
+		if (ch.empty()) return {-std::numeric_limits<double>::infinity(),
+					std::numeric_limits<double>::infinity()};
+		auto ret = rangeprop(ch[0]);
+		for(int i=1;i<ch.size();i++)
+			ret = ret.combine(rangeprop(ch[i]),
+					[](const range<double> &a, const range<double> &b) {
+						return range<double>{a.first+b.first,
+									a.second+b.second}; });
+		return ret;
+	}
+	if (isop(e,multiplieschain)) {
+		auto &ch = e.children();
+		if (ch.empty()) return {-std::numeric_limits<double>::infinity(),
+					std::numeric_limits<double>::infinity()};
+		auto ret = rangeprop(ch[0]);
+		for(int i=1;i<ch.size();i++)
+			ret = ret.combine(rangeprop(ch[i]),
+					[](const range<double> &a, const range<double> &b) {
+						auto v1=a.first*b.first, v2=a.second*b.second,
+							v3 = a.first*b.second, v4=a.second*b.first;
+						return range<double>{
+							std::min(std::min(v1,v2),std::min(v3,v4)),
+							std::max(std::max(v1,v2),std::max(v3,v4))};
+							});
+		return ret;
+	}
+	if (isop(e,absop)) {
+		return rangeprop(e.children()[0]).modify(
+				[](const range<double> &a) {
+					if (a.first>=0.0) return a;
+					if (a.second<=0.0) return range<double>{-a.second,-a.first};
+					return range<double>{0.0,std::max(-a.first,a.second)};
+					});
+	}
+	if (isop(e,powerop)) {
+		return rangeprop(e.children()[0]).combinemult(
+				rangeprop(e.children()[1]),
+				[](const range<double> &b, const range<double> &p) {
+					scalarset<double> ret;
+					if (b.first>0.0) {
+						auto v1=std::pow(b.first,p.first),
+							v2=std::pow(b.second,p.second),
+							v3=std::pow(b.first,p.second),
+							v4=std::pow(b.second,p.first);
+						ret.x.emplace(
+							std::min(std::min(v1,v2),std::min(v3,v4)),
+							std::max(std::max(v1,v2),std::max(v3,v4)));
+						return ret;
+					}
+					if (b.second>0.0) {
+						auto v1=std::pow(0.0,p.first),
+							v2=std::pow(b.second,p.second),
+							v3=std::pow(0.0,p.second),
+							v4=std::pow(b.second,p.first);
+						ret.x.emplace(
+							std::min(std::min(v1,v2),std::min(v3,v4)),
+							std::max(std::max(v1,v2),std::max(v3,v4)));
+					}
+					for(int ip = b.first.closed
+								|| std::fmod(b.first.pt,2.0)!=0.0 ?
+							(int)std::ceil(b.first.pt/2.0)*2
+							: (int)std::ceil(b.first.pt/2.0+1.0)*2;
+							ip<0 && ip<b.second;ip+=2)
+						ret.x.emplace(
+							b.first<=0.0 && b.second>=0.0 ?
+								0.0 : std::pow(
+									std::min(std::abs(b.first),
+										std::abs(b.second)),ip),
+							std::pow(std::max(std::abs(b.first),
+									std::abs(b.second)),ip));
+				});
+	}
+	if (isop(e,logop)) {
+		return rangeprop(e.children()[0]).modify(
+				[](range<double> a) {
+					a.first.pt = ::log(a.first.pt);
+					a.second.pt = ::log(a.second.pt);
+					return a;
+					});
+	}
+	if (isop(e,heavisideop)) {
+		return rangeprop(e.children()[0]).modify(
+				[](const range<double> &a) {
+					return range<double>{a.first < 0.0 ? 0.0 : 1.0,
+								a.second < 0.0 ? 0.0 : 1.0};
+					return a;
+				});
+	}
+	if (isop(e,diracop)) {
+		return rangeprop(e.children()[0]).modify(
+				[](const range<double> &a) {
+					return range<double>{0.0,
+						a.overlap(range<double>(0.0,0.0)) ?
+							std::numeric_limits<double>::infinity()
+							: 0.0};
+				});
+	}
+	return {-std::numeric_limits<double>::infinity(),
+					std::numeric_limits<double>::infinity()};
+}
 
+bool ispos(const expr &e) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.first<=0.0) return false;
+	return true;
+}
+bool isneg(const expr &e) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.second>=0.0) return false;
+	return true;
+}
+bool isnonneg(const expr &e) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.first<0.0) return false;
+	return true;
+}
+bool isnonpos(const expr &e) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.second>0.0) return false;
+	return true;
+}
+bool isconst(const expr &e, double k) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.first!=k || r.second!=k) return false;
+	return true;
+}
+bool iseven(const expr &e) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.first!=r.second || std::fmod(r.first,2.0)!=0.0) return false;
+	return true;
+}
+bool isodd(const expr &e) {
+	auto rs = rangeprop(e);
+	if (rs.x.empty()) return false; //???
+	for(auto &r : rs.x)
+		if (r.first!=r.second || std::fmod(r.first,2.0)!=1.0) return false;
+	return true;
+}
+
+/*
 struct normswitch : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
 		if (!isop(e,switchop)) return {};
@@ -242,6 +401,7 @@ struct mergeswitch : public rewriterule {
 		return optional<expr>{in_place,e.asnode(),newch};
 	}
 };
+*/
 
 ruleptr SRR(const expr &s, const expr &p) {
 	return SR(chainpatternmod(s),p);
@@ -272,10 +432,12 @@ std::vector<ruleptr> scalarruleset
   */
   toptr<collapsechain>(pluschain,true),
   toptr<collapsechain>(multiplieschain,true),
+  /*
   toptr<normswitch>(),
   toptr<mergeswitch>(),
   toptr<squeezeswitch>(),
   toptr<liftswitch>(),
+  */
 
   // some of these are only true "almost everywhere"
   // and might need to be removed for some applications
@@ -317,20 +479,35 @@ std::vector<ruleptr> scalarruleset
   SRR( log(pow(E1_,E2_))                  ,  P2_*log(P1_)                    ),
   SRR( log(E1_*E2_)                       ,  log(P1_) + log(P2_)             ),
 
+  SRR( log(cond(E1_,E2_,E3_))             ,  cond(P1_,log(P2_),log(P3_))     ),
+
+  SRR( abs(E1_)                           ,  P1_ ,
+   [](const exprmap &m) { return isnonneg(m.at(1)); } ),
+
+  SRR( abs(E1_)                           ,  -P1_ ,
+   [](const exprmap &m) { return isnonpos(m.at(1)); } ),
+
   SRR( deriv(E1_,V2_,V3_)                 ,  newconst(0.0),
       [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); }),
   SRR( deriv(V1_,V1_,V3_)                 ,  newconst(1.0)                   ),
 
   SRR( deriv(E1_+E2_,V3_,V4_)             ,
 		                           deriv(P1_,P3_,P4_) + deriv(P2_,P3_,P4_) ),
+
   SRR( deriv(E1_*E2_,V3_,V4_)             ,
 		     deriv(P1_,P3_,P4_)*evalat(P2_,P3_,P4_)
 		  + evalat(P1_,P3_,P4_)* deriv(P2_,P3_,P4_)                        ),
+
   SRR( deriv(pow(E1_,E2_),V3_,V4_)        ,
 	  evalat(pow(P1_,P2_),P3_,P4_)*evalat(log(P1_),P3_,P4_)*deriv(P2_,P3_,P4_)
 	+ evalat(P2_,P3_,P4_)*evalat(pow(P1_,P2_-1),P3_,P4_)*deriv(P1_,P3_,P4_) ),
+
   SRR( deriv(log(E1_),V2_,V3_)            ,
 		                          deriv(P1_,P2_,P3_) / evalat(P1_,P2_,P3_) ),
+
+  SRR( deriv(expr{heavisideop,E1_},V2_,V3_),
+				 evalat(expr{diracop,E1_},V2_,V3_)*deriv(E1_,V2_,V3_) ),
+
 
 	 }};
 

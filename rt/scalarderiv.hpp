@@ -45,6 +45,7 @@ expr derivreal(const expr &e, const expr &x) {
 		return {condop,ch[0],derivreal(ch[1],x),derivreal(ch[2],x)};
 	}
 	*/
+	/*
 	if (op==switchop) {
 		auto &ch = e.children();
 		std::vector<expr> newch;
@@ -55,6 +56,7 @@ expr derivreal(const expr &e, const expr &x) {
 		}
 		return {switchop,newch};
 	}
+	*/
 }
 
 expr deriv(const expr &e, const expr &x) {

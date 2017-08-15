@@ -1,17 +1,19 @@
 Current (miopic) list:
 	* Redo der and int to be operators with rewrite rules and (numeric) evals
 	- Add specialization of rewrites by list of vars
-	- convert "switch" to multiplication by step-indicator fn
 
 Longer / Maybe:
-	- fix conversion of constant to expr 
-	- Add ability of ops to pertain only to a particular type
+	- fix conversion of constant to expr (??)
+	- Add ability of ops to pertain only to a particular type (for real)
 	- Add "domain" of exprs
 	- Add comparison operators (maybe redo switches in that case?)
 	- Add "min" and "max" to scalars (using switches)
 	- Add matrices
-	- Add ranges / sets ?
+	* Add ranges / sets ? (partially done)
+	- Add trig functions (or just use complex numbers?)
 
 Done:
 	- Add "switch" rewrites to scalarrewrite.hpp
 	- Add "local scope"
+	- add abs as base function 
+	- convert "switch" to multiplication by step-indicator fn

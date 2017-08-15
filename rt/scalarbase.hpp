@@ -27,23 +27,23 @@ const std::shared_ptr<opchain> pluschain = std::make_shared<opchain>(plusop);
 const std::shared_ptr<opchain> multiplieschain = std::make_shared<opchain>(multipliesop);
 
 template<typename T>
-struct power {
+struct powerinfo {
 	constexpr T operator()(const T &b, const T &e) const {
 		return std::pow(b,e);
 	}
 };
 
-const op powerop = toptr<binopinfo<power<double>,double,double>>
+const op powerop = toptr<binopinfo<powerinfo<double>,double,double>>
 			(std::string("^"),true,false,2);
 
 template<typename T>
-struct natlog {
+struct natloginfo {
 	constexpr T operator()(const T &e) const {
 		return std::log(e);
 	}
 };
 
-const op logop = toptr<uniopinfo<natlog<double>,double>>
+const op logop = toptr<uniopinfo<natloginfo<double>,double>>
 			(std::string("log"),false,false,5);
 
 
@@ -139,6 +139,7 @@ struct condopinfo : public opinfo {
 };
 */
 
+/*
 template<typename T>
 struct switchopinfo : public opinfo {
 	// children: <test> <val1> <thresh1> <val2> <thresh2>
@@ -160,17 +161,59 @@ struct switchopinfo : public opinfo {
 
 //const op condop = toptr<condopinfo<double>>();
 const op switchop = toptr<switchopinfo<double>>();
+*/
+
+template<typename T>
+struct heavisideinfo : public opinfo {
+	T zeroval;
+	heavisideinfo(T zval=1.0) : opinfo(1,"H",false,false,5), zeroval(zval) {}
+
+	virtual any opeval(const any &x1) const {
+		return (MYany_cast<T>(x1)>0.0) ? any{T(1.0)} : 
+			(MYany_cast<T>(x1)==0.0 ? any{zeroval} : any{T(0.0)});
+	}
+};
+
+template<typename T>
+struct diracinfo : public opinfo {
+	diracinfo(): opinfo(1,"delta",false,false,5) {}
+
+	virtual any opeval(const any &x1) const {
+		return (MYany_cast<T>(x1)==0) ? any{std::numeric_limits<T>::infinity()} : any{T(0.0)};
+	}
+};
+
+template<typename T>
+struct absinfo : public opinfo {
+	// TODO: fix notation for printing
+	absinfo(): opinfo(1,"||",false,false,5) {}
+
+	virtual any opeval(const any &x1) const {
+		return (MYany_cast<T>(x1)<0) ? any{-MYany_cast<T>(x1)} : x1;
+	}
+};
+
+const op heavisideop = toptr<heavisideinfo<double>>();
+const op heavisideleftop = toptr<heavisideinfo<double>>(0.0);
+const op diracop = toptr<diracinfo<double>>();
+const op absop = toptr<absinfo<double>>();
 
 template<typename E1, typename E2, typename E3>
 expr cond(E1 &&condition, E2 &&negexp, E3 &&posexp) {
+	/*
 	return {switchop,std::forward<E1>(condition),
 		std::forward<E2>(negexp), newconst(0.0), std::forward<E3>(posexp)};
+		*/
+	return posexp*expr{heavisideop,condition}
+			+ negexp*expr{heavisideleftop,-1.0*condition};
 }
 
 expr abs(const expr &e) {
-	return cond(e,-e,e);
+	//return cond(e,-1.0*e,e);
+	return {absop,e};
 }
 
+/*
 auto varargtovec(std::vector<expr> &ret) {
 	return ret;
 }
@@ -191,6 +234,7 @@ expr caseexpr(const expr &condexp, std::vector<expr> args) {
 	args.insert(args.begin(),condexp);
 	return {switchop,std::move(args)};
 }
+*/
 
 template<typename T>
 struct derivopinfo : public scopeinfo {
