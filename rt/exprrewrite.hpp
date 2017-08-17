@@ -15,7 +15,7 @@ struct rewriterule {
 
 using ruleptr = std::shared_ptr<rewriterule>;
 
-optional<expr> runrules(const expr e, const std::vector<ruleptr> &rules) {
+optional<expr> runrules(const expr &e, const std::vector<ruleptr> &rules) {
 	bool done=false;
 	bool ret = false;
 	optional<expr> rete;
@@ -170,6 +170,10 @@ ruleptr SR(E1 &&pattern, E2 &&newexp, F condition) {
 struct consteval : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
+		if (isconstexpr(e)) return optional<expr>{in_place,
+						newconst(e.asnode()->eval(e.children()))};
+		return {};
+		/*
 		auto &ch = e.children();
 		for(auto &c : ch) 
 			if (!isconst(c)) return {};
@@ -178,15 +182,23 @@ struct consteval : public rewriterule {
 		for(auto &c : ch)
 			subexpr.emplace_back(MYany_cast<constval>(c.asleaf()).v);
 		return optional<expr>{in_place,newconst(e.asnode()->eval(subexpr))};
+		*/
 	}
 };
 
-struct evalateval : public rewriterule {
+struct scopeeval : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
-		if (!isop(e,evalatop)) return {};
+		if (!isop<scopeinfo>(e)) return {};
+		auto se = std::dynamic_pointer_cast<scopeinfo>(e.asnode());
 		auto &ch = e.children();
-		return optional<expr>{in_place,substitute(ch[1],ch[0],ch[2])};
+		//if (!se->caneval(ch)) {
+			if (isop(e,evalatop))
+				return substitute(ch[1],ch[0],ch[2]);
+			else return {};
+		//}
+		//return optional<expr>{in_place,newconst(se->eval(ch))};
 	}
 };
+
 
 #endif

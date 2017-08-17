@@ -415,7 +415,7 @@ ruleptr SRR(const expr &s, const expr &p, F &&f) {
 // TODO:  will need to be separated out into general and specific to scalars
 std::vector<ruleptr> scalarruleset 
 	{{toptr<consteval>(),
-	  toptr<evalateval>(),
+	  toptr<scopeeval>(),
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
 
   SRR(E1_ - E2_                          ,  P1_ + -1*P2_                     ),

@@ -257,4 +257,67 @@ expr deriv(const expr &e, const expr &localx, const expr &x) {
 	return {derivop,localx,e,x};
 }
 
+template<typename T>
+struct bigopinfo : public scopeinfo {
+	// 4 children: v, e, v0, v1
+	// represents sum_{v=v0}^v1 e
+	// (where v is local variable, as per scopeinfo)
+	op bop;
+	T id;
+	bigopinfo(op baseop, T i, const std::string &n) : bop(baseop), id(i),
+			scopeinfo(4,n,false,false,5) {}
+
+	virtual bool caneval(const std::vector<expr> &x) const {
+		return isconst(x[2]) && isconst(x[3])
+			&& isvar(x[0])
+			&& isconstexprexcept(x[1],getvar(x[0]))
+			&& std::isfinite(getconst<T>(x[2]))
+			&& std::isfinite(getconst<T>(x[3]));
+	}
+
+	virtual any eval(const std::vector<expr> &x) const {
+		T v0 = getconst<T>(x[2]), v1 = getconst<T>(x[3]);
+		any ret{id};
+		for(T v = v0; v<=v1; v++)
+			ret = bop->opeval(ret,
+				::eval(substitute(x[1],x[0],newconst(v))));
+		return ret;
+	}
+};
+
+const op sumop = toptr<bigopinfo<double>>(plusop,0.0,"sum");
+const op prodop = toptr<bigopinfo<double>>(multipliesop,1.0,"prod");
+
+expr sum(const expr &e, const expr &x, const expr &x0, const expr &x1) {
+	return {sumop,x,e,x0,x1};
+}
+template<typename T>
+expr sum(const expr &e, const expr &x, T x0, const expr &x1) {
+	return {sumop,x,e,newconst(x0),x1};
+}
+template<typename T>
+expr sum(const expr &e, const expr &x, const expr &x0, T x1) {
+	return {sumop,x,e,x0,newconst<T>(x1)};
+}
+template<typename T0, typename T1>
+expr sum(const expr &e, const expr &x, T0 x0, T1 x1) {
+	return {sumop,x,e,newconst<T0>(x0),newconst<T1>(x1)};
+}
+
+expr prod(const expr &e, const expr &x, const expr &x0, const expr &x1) {
+	return {prodop,x,e,x0,x1};
+}
+template<typename T>
+expr prod(const expr &e, const expr &x, T x0, const expr &x1) {
+	return {prodop,x,e,newconst(x0),x1};
+}
+template<typename T>
+expr prod(const expr &e, const expr &x, const expr &x0, T x1) {
+	return {prodop,x,e,x0,newconst<T>(x1)};
+}
+template<typename T0, typename T1>
+expr prod(const expr &e, const expr &x, T0 x0, T1 x1) {
+	return {prodop,x,e,newconst<T0>(x0),newconst<T1>(x1)};
+}
+
 #endif

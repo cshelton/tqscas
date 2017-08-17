@@ -45,4 +45,6 @@ int main(int argc, char **argv) {
 	checkrewrite(abs(-x*x),pow(x,2));
 	checkrewrite(abs(log(1.0+x*x)),log(1.0+pow(x,2)));
 	checkrewrite(abs(log(0.5+x*x)),abs(log(0.5+pow(x,2))));
+	checkrewrite(sum(x,x,1.0,10.0),newconst(55.0));
+	checkrewrite(sum(sum(x*y,x,1.0,10.0),y,0.0,2.0),newconst(55.0*3.0));
 }
