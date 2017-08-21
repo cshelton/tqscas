@@ -412,6 +412,32 @@ ruleptr SRR(const expr &s, const expr &p, F &&f) {
 	return SR(chainpatternmod(s),p,std::forward<F>(f));
 }
 
+// all of the next few "helpers" should perhaps be moved elsewhere
+// they may also need to be made more efficient and perhaps given
+// their own algebraic symbols to be reasonable about directly
+// (for instance, we probably don't want to be evaluating "factorial"
+//  or "choose" directly)
+expr factorial(const expr &n) {
+	expr i = newvar<double>(); 
+	return prod(i,i,newconst(1.0),n);
+}
+
+expr nchoosek(const expr &n, const expr k) {
+	return factorial(n)/(factorial(k)*factorial(n-k));
+}
+
+expr B0(const expr &m) {
+	expr k=newvar<double>(), v=newvar<double>();
+
+	return sum(sum(pow(newconst(-1.0),v)*nchoosek(k,v)*pow(v+1.0,m)/(k+1.0),v,newconst(0.0),k),k,newconst(0.0),m);
+}
+
+// Bernoulli polynomial
+expr B(const expr &n, const expr &m) {
+	expr k = newvar<double>();
+	return sum(nchoosek(n,k)*B0(n-k)*pow(m,k),k,newconst(0.0),n);
+}
+
 // TODO:  will need to be separated out into general and specific to scalars
 std::vector<ruleptr> scalarruleset 
 	{{toptr<consteval>(),
@@ -419,7 +445,7 @@ std::vector<ruleptr> scalarruleset
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
 
   SRR(E1_ - E2_                          ,  P1_ + -1*P2_                     ),
-  SRR(-E1_                               ,  -1*P1_                           ),
+  SRR(-E1_                               ,  -1.0*P1_                         ),
 
   SRR(E1_ / E2_                          ,  P1_ * pow(P2_,-1.0)              ),
 
@@ -500,7 +526,7 @@ std::vector<ruleptr> scalarruleset
 
   SRR( deriv(pow(E1_,E2_),V3_,V4_)        ,
 	  evalat(pow(P1_,P2_),P3_,P4_)*evalat(log(P1_),P3_,P4_)*deriv(P2_,P3_,P4_)
-	+ evalat(P2_,P3_,P4_)*evalat(pow(P1_,P2_-1),P3_,P4_)*deriv(P1_,P3_,P4_) ),
+   + evalat(P2_,P3_,P4_)*evalat(pow(P1_,P2_-1.0),P3_,P4_)*deriv(P1_,P3_,P4_) ),
 
   SRR( deriv(log(E1_),V2_,V3_)            ,
 		                          deriv(P1_,P2_,P3_) / evalat(P1_,P2_,P3_) ),
@@ -508,8 +534,28 @@ std::vector<ruleptr> scalarruleset
   SRR( deriv(expr{heavisideop,E1_},V2_,V3_),
 				 evalat(expr{diracop,E1_},V2_,V3_)*deriv(E1_,V2_,V3_) ),
 
+  // perhaps need "max(0,P4_-P3_+1.0)"??
+  SRR( sum(E1_,V2_,E3_,E4_)               , P1_*(P4_-P3_+1.0),
+      [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); }   ),
+
+  SRR( sum(E1_*E2_,V3_,E4_,E5_)           , P1_*sum(P2_,P3_,P4_,P5_),
+	 [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(3))); }   ),
+  SRR( sum(E1_*E2_,V3_,E4_,E5_)           , sum(P1_,P3_,P4_,P5_)*P2_,
+	 [](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); }   ),
+
+  // Faulhaber's formula
+  // TODO:  problem here!  The sums introduced in B get the same 
+  // local variables (not unique)
+  // need to add something in matchrewrite to rewrite local vars each
+  // time it is invoked
+  /*
+  SRR( sum(pow(V1_,E2_),V1_,E3_,E4_)      ,
+		  				(B(P2_+1.0,P4_) - B(P2_+1.0,P3_))/(P2_+1.0) ,
+  	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1))); }    ),
+	*/
+  SRR( sum(V2_,V2_,E3_,E4_)      ,
+					(B(newconst(1.0),P4_) - B(newconst(1.0),P3_))        ),
 
 	 }};
-
 
 #endif

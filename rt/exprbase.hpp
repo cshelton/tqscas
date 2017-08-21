@@ -122,7 +122,7 @@ expr newvar(const std::type_info &ti) {
 
 template<typename T>
 expr newvar() {
-	return newvar<T>(typeid(T));
+	return newvar(typeid(T));
 }
 
 
