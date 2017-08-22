@@ -21,6 +21,8 @@ int main(int argc, char **argv) {
 	expr y = newvar<double>("y");
 	expr z = newvar<double>("z");
 
+/*
+	checkrewrite(0.5*x*x*x + 0.25*x*x, 0.25*pow(x,2) + 0.5*pow(x,3));
 	checkrewrite(x+x,2*x);
 	checkrewrite(x+x+x,3*x);
 	checkrewrite(x+(x+x)+(x+y),y+4*x);
@@ -51,5 +53,14 @@ int main(int argc, char **argv) {
 	checkrewrite(sum(y,x,y,y+6),7.0*y);
 	checkrewrite(sum(x*y,x,1.0,10.0),55.0*y);
 	checkrewrite(sum(x*y,y,1.0,10.0),55.0*x);
-	checkrewrite(sum(x,x,1.0,y),0.5*pow(y,2)+0.5*y);
+	checkrewrite(sum(abs(x),x,1.0,z)+sum(abs(y),y,1.0,z),
+			2.0*sum(abs(x),x,1.0,z));
+*/
+	checkrewrite(sum(x*x,x,0.0,y),(1.0/6.0)*y + 0.5*pow(y,2.0) + (1.0/3.0)*pow(y,3.0));
+	checkrewrite(sum(x,x,0.0,y),0.5*y+0.5*pow(y,2.0));
+/*
+	checkrewrite(sum(x,x,1.0,y),0.5*y+0.5*pow(y,2.0));
+	checkrewrite(sum(x,x,2.0,y),-1.0+0.5*y+0.5*pow(y,2.0));
+	checkrewrite(sum(x,x,3.0,y),-3.0+0.5*y+0.5*pow(y,2.0));
+*/
 }

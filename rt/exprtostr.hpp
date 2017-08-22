@@ -10,19 +10,36 @@
 #include <typeindex>
 #include <utility>
 #include <numeric>
+#include <sstream>
+#include <iomanip>
+
+namespace tmpstd {
+
+	std::string to_string(double d) {
+		std::ostringstream ss;
+		ss << std::setprecision(17) << d;
+		return {ss.str()};
+	}
+
+	std::string to_string(int i) {
+		std::ostringstream ss;
+		ss << i << "i";
+		return {ss.str()};
+	}
+}
 
 std::string tostring(const any &x) {
 	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
 		tostringlookupconst =
 		 {
 		   {typeid(double),
-		    [](const any &x) { return std::to_string(MYany_cast<double>(x)); }},
+		    [](const any &x) { return tmpstd::to_string(MYany_cast<double>(x)); }},
 		   {typeid(long double),
 		    [](const any &x) { return std::to_string(MYany_cast<long double>(x)); }},
 		   {typeid(float),
 		    [](const any &x) { return std::to_string(MYany_cast<float>(x)); }},
 		   {typeid(int),
-		    [](const any &x) { return std::to_string(MYany_cast<int>(x)); }},
+		    [](const any &x) { return tmpstd::to_string(MYany_cast<int>(x)); }},
 		   {typeid(unsigned int),
 		    [](const any &x) { return std::to_string(MYany_cast<unsigned int>(x)); }},
 		   {typeid(long),

@@ -11,6 +11,7 @@ Longer / Maybe:
 	- Add matrices
 	* Add ranges / sets ? (partially done)
 	- Add trig functions (or just use complex numbers?)
+	- Use boost::rational<???> instead of double for scalars (convert double => rational?)
 
 Done:
 	- Add "switch" rewrites to scalarrewrite.hpp

@@ -163,6 +163,7 @@ class gentree {
 			return map1(fn).value_or(*this);
 		}
 
+		/*
 		template<typename F>
 		optional<gentree> map1(F fn) const {
 			auto newtree = fn(*this);
@@ -183,6 +184,30 @@ class gentree {
 			}
 			if (newch.empty()) return {};
 			return optional<gentree>{in_place,asnode(),newch};
+		}
+		*/
+
+		template<typename F>
+		optional<gentree> map1(F fn) const {
+			if (isleaf()) return fn(*this);
+			auto &ch = children();
+			std::vector<gentree> newch;
+			for(int i=0;i<ch.size();i++) {
+				auto nc = ch[i].map1(fn);
+				if (nc) {
+					if (newch.empty()) {
+						newch.reserve(ch.size());
+						for(int j=0;j<i;j++)
+							newch.emplace_back(ch[j]);
+					}
+					newch.emplace_back(*nc);
+				} else if (!newch.empty()) newch.emplace_back(ch[i]);
+			}
+			if (newch.empty()) return fn(*this);
+			gentree newtree{asnode(),newch};
+			auto newtree2 = fn(newtree);
+			if (newtree2) return newtree2;
+			return newtree;
 		}
 
 		// belong here or need a different fold?

@@ -108,10 +108,35 @@ bool opsmatch(const expr &e1, const expr &e2) {
 	return n1==n2;
 }
 
+bool equiv(const expr &a, const expr &b, vmap &m) {
+	if (!(a.isleaf()==b.isleaf())) return false;
+	if (a.isleaf()) {
+		if (isvar(a) && isvar(b)) {
+			auto l = m.find(getvar(b));
+			if (l!=m.end()) return getvar(a)==l->second;
+		}
+		return a.asleaf()==b.asleaf();
+	}
+	if (a.asnode()!=b.asnode()) return false;
+	auto &ach = a.children();
+	auto &bch = b.children();
+	if (ach.size()!=bch.size()) return false;
+	if (isop<scopeinfo>(a)) m.emplace(getvar(bch[0]), getvar(ach[0]));
+	for(int i=0;i<ach.size();i++)
+		if (!equiv(ach[i],bch[i],m)) return false;
+	if (isop<scopeinfo>(a)) m.erase(getvar(bch[0]));
+	return true;
+}
+
+bool equiv(const expr &a, const expr &b) {
+	vmap m;
+	return equiv(a,b,m);
+}
+
 bool mergemap(exprmap &orig, const exprmap &toadd) {
 	for(auto &p : toadd) {
 		auto loc = orig.emplace(p);
-		if (!loc.second && loc.first->second != p.second) return false;
+		if (!loc.second && !equiv(loc.first->second,p.second)) return false;
 	}
 	return true;
 }

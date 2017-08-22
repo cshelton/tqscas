@@ -27,8 +27,8 @@ bool isgenexp(const expr &e) {
 }
 
 
-expr chainpatternmod(const expr &e) {
-	return e.map([](const expr &e) {
+expr chainpatternmod(const expr &ex) {
+	return ex.map([](const expr &e) {
 			if (e.isleaf()) return optional<expr>{};
 			auto n = e.asnode();
 			if (n==pluschain || n==multiplieschain) {
@@ -76,7 +76,7 @@ struct sortchildren : public rewriterule {
 			double v1 = getconst<double>(e1);
 			double v2 = getconst<double>(e2);
 			if (v1<v2) return -1;
-			if (v2>v1) return +1;
+			if (v1>v2) return +1;
 			return 0;
 		}
 		if (isvar(e1))
@@ -104,7 +104,7 @@ struct sortchildren : public rewriterule {
 			return {};
 		auto &ch = e.children();
 		if (ch.size()<2) return {};
-		for(int i=1;i<ch.size();i++)
+		for(int i=1;i<ch.size();i++) {
 			if (exprcmp(ch[i-1],ch[i])>0) {
 				std::vector<expr> che = ch;
 				std::sort(che.begin(),che.end(),
@@ -114,6 +114,7 @@ struct sortchildren : public rewriterule {
 				);
 				return optional<expr>{in_place,e.asnode(),che};
 			}
+		}
 		return {};
 	}
 };
@@ -412,6 +413,46 @@ ruleptr SRR(const expr &s, const expr &p, F &&f) {
 	return SR(chainpatternmod(s),p,std::forward<F>(f));
 }
 
+struct sumexpand : public rewriterule {
+	int nterms;
+
+	sumexpand(int n) : nterms(n) { }
+
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,sumop)) return {};
+		auto &ch = e.children();
+		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
+		double x0 = getconst<double>(ch[2]);
+		double x1 = getconst<double>(ch[3]);
+		if (x1 < x0) return optional<expr>{in_place,newconst(0.0)};
+		if (x1 >= x0+nterms) return {};
+		std::vector<expr> terms;
+		for(double x=x0;x<=x1;x+=1.0)
+			terms.emplace_back(substitute(ch[1],ch[0],newconst(x)));
+		return optional<expr>{in_place,pluschain,terms};
+	}
+};
+
+struct prodexpand : public rewriterule {
+	int nterms;
+
+	prodexpand(int n) : nterms(n) {}
+
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,prodop)) return {};
+		auto &ch = e.children();
+		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
+		double x0 = getconst<double>(ch[2]);
+		double x1 = getconst<double>(ch[3]);
+		if (x1 < x0) return optional<expr>{in_place,newconst(1.0)};
+		if (x1 >= x0+nterms) return {};
+		std::vector<expr> terms;
+		for(double x=x0;x<=x1;x+=1.0)
+			terms.emplace_back(substitute(ch[1],ch[0],newconst(x)));
+		return optional<expr>{in_place,multiplieschain,terms};
+	}
+};
+
 // all of the next few "helpers" should perhaps be moved elsewhere
 // they may also need to be made more efficient and perhaps given
 // their own algebraic symbols to be reasonable about directly
@@ -429,7 +470,10 @@ expr nchoosek(const expr &n, const expr k) {
 expr B0(const expr &m) {
 	expr k=newvar<double>(), v=newvar<double>();
 
-	return sum(sum(pow(newconst(-1.0),v)*nchoosek(k,v)*pow(v+1.0,m)/(k+1.0),v,newconst(0.0),k),k,newconst(0.0),m);
+	// pos series
+	//return sum(sum(pow(newconst(-1.0),v)*nchoosek(k,v)*pow(v+1.0,m)/(k+1.0),v,newconst(0.0),k),k,newconst(0.0),m);
+	// neg series
+	return sum(sum(pow(newconst(-1.0),v)*nchoosek(k,v)*pow(v,m)/(k+1.0),v,newconst(0.0),k),k,newconst(0.0),m);
 }
 
 // Bernoulli polynomial
@@ -438,13 +482,18 @@ expr B(const expr &n, const expr &m) {
 	return sum(nchoosek(n,k)*B0(n-k)*pow(m,k),k,newconst(0.0),n);
 }
 
+expr psum(const expr &p, const expr &n) {
+	expr k = newvar<double>();
+	return sum(nchoosek(p,k)*B0(p-k)*pow(-1.0,p-k)/(k+1.0)*pow(n,k+1.0),k,newconst(0.0),p);
+}
+
 // TODO:  will need to be separated out into general and specific to scalars
 std::vector<ruleptr> scalarruleset 
-	{{toptr<consteval>(),
+	{{//toptr<consteval>(),
 	  toptr<scopeeval>(),
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
 
-  SRR(E1_ - E2_                          ,  P1_ + -1*P2_                     ),
+  SRR(E1_ - E2_                          ,  P1_ + -1.0*P2_                   ),
   SRR(-E1_                               ,  -1.0*P1_                         ),
 
   SRR(E1_ / E2_                          ,  P1_ * pow(P2_,-1.0)              ),
@@ -458,6 +507,8 @@ std::vector<ruleptr> scalarruleset
   */
   toptr<collapsechain>(pluschain,true),
   toptr<collapsechain>(multiplieschain,true),
+  toptr<constchaineval>(pluschain),
+  toptr<constchaineval>(multiplieschain),
   /*
   toptr<normswitch>(),
   toptr<mergeswitch>(),
@@ -469,11 +520,14 @@ std::vector<ruleptr> scalarruleset
   // and might need to be removed for some applications
   // (or, we need a "domain" to be propagated with the expr)
   SRR( 0.0 + E1_                          ,  P1_                             ),
+  SRR( -0.0 + E1_                          ,  P1_                             ),
   SRR( 1.0 * E1_                          ,  P1_                             ),
   SRR( 0.0 * E1_                          ,  newconst(0.0)                   ),
+  SRR( -0.0 * E1_                          ,  newconst(0.0)                   ),
   SRR( pow(E1_,1.0)                       ,  P1_                             ),
   SRR( pow(E1_,0.0)                       ,  newconst(1.0)                   ),
   SRR( pow(1.0,E1_)                       ,  newconst(1.0)                   ),
+  SRR( pow(0.0,E1_)                       ,  newconst(0.0)                   ),
 
   SRR( E1_ + E1_                          ,  2*P1_                           ),
   SRR( E1_ + E1_ + E2_                    ,  2*P1_ + P2_                     ),
@@ -481,7 +535,7 @@ std::vector<ruleptr> scalarruleset
   SRR( E1_ * E1_                          ,  pow(P1_,2.0)                    ),
   SRR( E1_ * E1_ * E2_                    ,  pow(P1_,2.0)*P2_                ),
 
-  SRR( K1_*(W2_ + W3_)                    ,  P1_*P2_ + P1_*P3_               ),
+  SRR( K1_*(E2_ + E3_)                    ,  P1_*P2_ + P1_*P3_               ),
 
   SRR( K1_*E2_ + K3_*E2_                  ,  (P1_+P3_) * P2_                 ),
   SRR( K1_*E2_ + K3_*E2_ + E4_            ,  (P1_+P3_) * P2_ + P4_           ),
@@ -543,18 +597,20 @@ std::vector<ruleptr> scalarruleset
   SRR( sum(E1_*E2_,V3_,E4_,E5_)           , sum(P1_,P3_,P4_,P5_)*P2_,
 	 [](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); }   ),
 
+  toptr<sumexpand>(3),
+  toptr<prodexpand>(3),
+
   // Faulhaber's formula
-  // TODO:  problem here!  The sums introduced in B get the same 
-  // local variables (not unique)
-  // need to add something in matchrewrite to rewrite local vars each
-  // time it is invoked
-  /*
   SRR( sum(pow(V1_,E2_),V1_,E3_,E4_)      ,
-		  				(B(P2_+1.0,P4_) - B(P2_+1.0,P3_))/(P2_+1.0) ,
+	//	 			(B(P2_+1.0,P4_+1.0) - B(P2_+1.0,P3_+1.0))/(P2_+1.0) ,
+		(psum(P2_,P4_) - psum(P2_,P3_-1.0)),
   	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1))); }    ),
-	*/
   SRR( sum(V2_,V2_,E3_,E4_)      ,
-					(B(newconst(1.0),P4_) - B(newconst(1.0),P3_))        ),
+		(psum(newconst(1.0),P4_) - psum(newconst(1.0),P3_-1.0))    ),
+
+  toptr<consteval>(),
+
+
 
 	 }};
 

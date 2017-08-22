@@ -276,7 +276,7 @@ struct bigopinfo : public scopeinfo {
 	}
 
 	virtual any eval(const std::vector<expr> &x) const {
-		T v0 = getconst<T>(x[2]), v1 = getconst<T>(x[3]);
+		T v0 = MYany_cast<double>(::eval(x[2])), v1 = MYany_cast<double>(::eval(x[3]));
 		any ret{id};
 		for(T v = v0; v<=v1; v++)
 			ret = bop->opeval(ret,

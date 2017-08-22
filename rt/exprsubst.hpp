@@ -55,15 +55,31 @@ expr P7_ = P(7);
 expr P8_ = P(8);
 expr P9_ = P(9);
 
+bool isplaceholder(const expr &e) {
+	return (e.isleaf() && e.asleaf().type()==typeid(placeholder));
+}
+
 expr substitute(const expr &e, const exprmap st) {
 	return e.map([st](const expr &ex) {
-			if (ex.isleaf() && ex.asleaf().type()==typeid(placeholder)) {
+			if (isplaceholder(ex)) {
 				int n = MYany_cast<placeholder>(ex.asleaf()).num;
 				auto l = st.find(n);
 				if (l!=st.end()) return optional<expr>{l->second};
 			}
 			return optional<expr>{};
 		});
+}
+
+//--------------------
+
+expr replacelocal(const expr &e) {
+	return e.map([](const expr &ex) {
+			if (!isop<scopeinfo>(ex) ||
+			    isplaceholder(ex.children()[0]))
+				return optional<expr>{};
+			expr nv = newvar<double>();
+			return optional<expr>{in_place,substitute(ex,ex.children()[0],nv)};
+			});
 }
 
 #endif

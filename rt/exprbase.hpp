@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <cmath>
 #include <typeinfo>
 #include <typeindex>
 
@@ -33,8 +34,20 @@ any eval(const expr &e);
 
 struct constval {
 	any v;
+	constval(any val) : v{std::move(val)} {
+		/*
+		double vv = MYany_cast<double>(v);
+		if (vv!=0.0 && std::abs(vv)<1e-6)
+				std::cout << "RIGHT HERE" << std::endl;
+				*/
+	}
 	template<typename T>
-	constval(T val) : v{std::move(val)} {}
+	constval(T val) : v{std::move(val)} {
+		/*
+		if (val!=0.0 && std::abs(val)<1e-6)
+				std::cout << "RIGHT HERE" << std::endl;
+				*/
+	}
 };
 
 struct opinfo {
@@ -125,16 +138,28 @@ expr newvar() {
 	return newvar(typeid(T));
 }
 
+/*
+expr newconst(const double &d) {
+	if (d!=0.0 && std::abs(d)<1e-6)
+		std::cout << "HERE: " << d << " (" << std::abs(d) << ")" << std::endl;
+	return {constval{d}};
+}
+*/
 
 template<typename T>
 expr newconst(const T &v) {
 	return {constval{v}};
 }
 
+any getconstany(const expr &e) {
+	return MYany_cast<constval>(e.asleaf()).v;
+}
+
 template<typename T>
 T getconst(const expr &e) {
-	return MYany_cast<T>(MYany_cast<constval>(e.asleaf()).v);
+	return MYany_cast<T>(getconstany(e));
 }
+
 
 var getvar(const expr &e) {
 	return MYany_cast<var>(e.asleaf());
@@ -165,7 +190,7 @@ bool isvar(const expr &e) {
 }
 
 using vset = std::unordered_set<var>;
-//using vmap = std::unordered_map<var,var>;
+using vmap = std::unordered_map<var,var>;
 //using vkmap = std::unordered_map<var,any>;
 
 struct scopeinfo;// : public opinfo;

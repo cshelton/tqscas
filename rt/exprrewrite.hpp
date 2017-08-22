@@ -100,6 +100,8 @@ struct collapsechain : public rewriterule {
 		auto &n = e.asnode();
 		if (n!=cop) return {};
 		auto &ch = e.children();
+		if (ch.size()==1)
+			return optional<expr>{in_place,ch[0]};
 		int nnewch = 0;
 		bool cont=false;
 		for(auto &c : ch) 
@@ -132,7 +134,7 @@ struct matchrewrite : public rewriterule {
 
 	virtual optional<expr> apply(const expr &e) const {
 		auto m = match(e,search);
-		if (m) return substitute(replace,*m);
+		if (m) return substitute(replacelocal(replace),*m);
 		else return {};
 	}
 };
@@ -186,6 +188,31 @@ struct consteval : public rewriterule {
 	}
 };
 
+struct constchaineval : public rewriterule {
+	std::shared_ptr<opchain> cop;
+
+	constchaineval(std::shared_ptr<opchain> chainop) : cop(chainop) {}
+
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,cop)) return {};
+		auto &ch = e.children();
+		int ai=-1,bi=-1;
+		for(int i=0;i<ch.size();i++)
+			if (isconst(ch[i])) {
+				if (ai>=0) {
+					bi=i;
+					break;
+				} else ai = i;
+			}
+		if (bi==-1) return {};
+		auto newch(ch);
+		newch[ai] = newconst(cop->baseop->opeval(getconstany(ch[ai]),getconstany(ch[bi])));
+		newch.erase(newch.begin()+bi);
+		return optional<expr>{in_place,e.asnode(),newch};
+	}
+};
+
+
 struct scopeeval : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
 		if (!isop<scopeinfo>(e)) return {};
@@ -199,6 +226,5 @@ struct scopeeval : public rewriterule {
 		//return optional<expr>{in_place,newconst(se->eval(ch))};
 	}
 };
-
 
 #endif
