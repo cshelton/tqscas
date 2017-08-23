@@ -12,6 +12,7 @@
 #include <numeric>
 #include <sstream>
 #include <iomanip>
+#include "scalartype.hpp"
 
 namespace tmpstd {
 
@@ -32,6 +33,8 @@ std::string tostring(const any &x) {
 	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
 		tostringlookupconst =
 		 {
+		   {typeid(scalarreal),
+		    [](const any &x) { return tostring(MYany_cast<scalarreal>(x)); }},
 		   {typeid(double),
 		    [](const any &x) { return tmpstd::to_string(MYany_cast<double>(x)); }},
 		   {typeid(long double),

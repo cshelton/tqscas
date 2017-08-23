@@ -10,6 +10,7 @@
 #include <cmath>
 #include <typeinfo>
 #include <typeindex>
+#include "scalartype.hpp"
 
 using any = std::experimental::any;
 
@@ -119,12 +120,12 @@ namespace std {
 
 
 expr newvar(const std::string &name, const std::type_info &ti) {
-	return var{varinfo(name,ti)};
+	return expr{var{varinfo(name,ti)}};
 }
 
 template<typename T>
 expr newvar(const std::string &name) {
-	return var{varinfo(name,typeid(T))};
+	return expr{var{varinfo(name,typeid(T))}};
 }
 
 std::size_t globalvarnum__ = 0;
@@ -138,17 +139,9 @@ expr newvar() {
 	return newvar(typeid(T));
 }
 
-/*
-expr newconst(const double &d) {
-	if (d!=0.0 && std::abs(d)<1e-6)
-		std::cout << "HERE: " << d << " (" << std::abs(d) << ")" << std::endl;
-	return {constval{d}};
-}
-*/
-
 template<typename T>
 expr newconst(const T &v) {
-	return {constval{v}};
+	return expr{constval{v}};
 }
 
 any getconstany(const expr &e) {
@@ -285,6 +278,8 @@ bool operator==(const leaf &a, const leaf &b) {
 		std::function<bool(const any &, const any &)>>
           eqcmplookupconst =
            {
+             {typeid(scalarreal),[](const any &a, const any &b)
+		    	{ return MYany_cast<scalarreal>(a) == MYany_cast<scalarreal>(b); }},
              {typeid(double),[](const any &a, const any &b)
 		    	{ return MYany_cast<double>(a) == MYany_cast<double>(b); }},
              {typeid(long double),[](const any &a, const any &b)

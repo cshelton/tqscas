@@ -73,8 +73,8 @@ struct sortchildren : public rewriterule {
 
 	int secondordering(const expr &e1, const expr &e2) const {
 		if (isconst(e1)) {
-			double v1 = getconst<double>(e1);
-			double v2 = getconst<double>(e2);
+			scalarreal v1 = getconst<scalarreal>(e1);
+			scalarreal v2 = getconst<scalarreal>(e2);
 			if (v1<v2) return -1;
 			if (v1>v2) return +1;
 			return 0;
@@ -119,33 +119,33 @@ struct sortchildren : public rewriterule {
 	}
 };
 
-scalarset<double> rangeprop(const expr &e) {
+scalarset<scalarreal> rangeprop(const expr &e) {
 	if (isconst(e)) {
-		return {getconst<double>(e)};
+		return {getconst<scalarreal>(e)};
 	}
 	if (isop(e,pluschain)) {
 		auto &ch = e.children();
-		if (ch.empty()) return {-std::numeric_limits<double>::infinity(),
-					std::numeric_limits<double>::infinity()};
+		if (ch.empty()) return {-std::numeric_limits<scalarreal>::infinity(),
+					std::numeric_limits<scalarreal>::infinity()};
 		auto ret = rangeprop(ch[0]);
 		for(int i=1;i<ch.size();i++)
 			ret = ret.combine(rangeprop(ch[i]),
-					[](const range<double> &a, const range<double> &b) {
-						return range<double>{a.first+b.first,
+					[](const range<scalarreal> &a, const range<scalarreal> &b) {
+						return range<scalarreal>{a.first+b.first,
 									a.second+b.second}; });
 		return ret;
 	}
 	if (isop(e,multiplieschain)) {
 		auto &ch = e.children();
-		if (ch.empty()) return {-std::numeric_limits<double>::infinity(),
-					std::numeric_limits<double>::infinity()};
+		if (ch.empty()) return {-std::numeric_limits<scalarreal>::infinity(),
+					std::numeric_limits<scalarreal>::infinity()};
 		auto ret = rangeprop(ch[0]);
 		for(int i=1;i<ch.size();i++)
 			ret = ret.combine(rangeprop(ch[i]),
-					[](const range<double> &a, const range<double> &b) {
+					[](const range<scalarreal> &a, const range<scalarreal> &b) {
 						auto v1=a.first*b.first, v2=a.second*b.second,
 							v3 = a.first*b.second, v4=a.second*b.first;
-						return range<double>{
+						return range<scalarreal>{
 							std::min(std::min(v1,v2),std::min(v3,v4)),
 							std::max(std::max(v1,v2),std::max(v3,v4))};
 							});
@@ -153,108 +153,108 @@ scalarset<double> rangeprop(const expr &e) {
 	}
 	if (isop(e,absop)) {
 		return rangeprop(e.children()[0]).modify(
-				[](const range<double> &a) {
-					if (a.first>=0.0) return a;
-					if (a.second<=0.0) return range<double>{-a.second,-a.first};
-					return range<double>{0.0,std::max(-a.first,a.second)};
+				[](const range<scalarreal> &a) {
+					if (a.first>=0) return a;
+					if (a.second<=0) return range<scalarreal>{-a.second,-a.first};
+					return range<scalarreal>{scalarreal{0},std::max(-a.first,a.second)};
 					});
 	}
 	if (isop(e,powerop)) {
 		return rangeprop(e.children()[0]).combinemult(
 				rangeprop(e.children()[1]),
-				[](const range<double> &b, const range<double> &p) {
-					scalarset<double> ret;
-					if (b.first>0.0) {
-						auto v1=std::pow(b.first,p.first),
-							v2=std::pow(b.second,p.second),
-							v3=std::pow(b.first,p.second),
-							v4=std::pow(b.second,p.first);
+				[](const range<scalarreal> &b, const range<scalarreal> &p) {
+					scalarset<scalarreal> ret;
+					if (b.first>0) {
+						auto v1=pow(b.first,p.first),
+							v2=pow(b.second,p.second),
+							v3=pow(b.first,p.second),
+							v4=pow(b.second,p.first);
 						ret.x.emplace(
 							std::min(std::min(v1,v2),std::min(v3,v4)),
 							std::max(std::max(v1,v2),std::max(v3,v4)));
 						return ret;
 					}
-					if (b.second>0.0) {
-						auto v1=std::pow(0.0,p.first),
-							v2=std::pow(b.second,p.second),
-							v3=std::pow(0.0,p.second),
-							v4=std::pow(b.second,p.first);
+					if (b.second>0) {
+						auto v1=pow(0,p.first),
+							v2=pow(b.second,p.second),
+							v3=pow(0,p.second),
+							v4=pow(b.second,p.first);
 						ret.x.emplace(
 							std::min(std::min(v1,v2),std::min(v3,v4)),
 							std::max(std::max(v1,v2),std::max(v3,v4)));
 					}
-					for(int ip = b.first.closed
-								|| std::fmod(b.first.pt,2.0)!=0.0 ?
-							(int)std::ceil(b.first.pt/2.0)*2
-							: (int)std::ceil(b.first.pt/2.0+1.0)*2;
-							ip<0 && ip<b.second;ip+=2)
+					for(auto ip = b.first.closed
+								|| !b.first.pt.iseven() ?
+							ceil(b.first.pt/2)*2
+							: ceil(b.first.pt/2+1)*2;
+							ip<0 && b.second>ip;ip+=2)
 						ret.x.emplace(
-							b.first<=0.0 && b.second>=0.0 ?
-								0.0 : std::pow(
-									std::min(std::abs(b.first),
-										std::abs(b.second)),ip),
-							std::pow(std::max(std::abs(b.first),
-									std::abs(b.second)),ip));
+							b.first<=0 && b.second>=0 ?
+								scalarreal{0} : pow(
+									std::min(abs(b.first),
+										abs(b.second)),ip),
+							pow(std::max(abs(b.first),
+									abs(b.second)),ip));
 				});
 	}
 	if (isop(e,logop)) {
 		return rangeprop(e.children()[0]).modify(
-				[](range<double> a) {
-					a.first.pt = ::log(a.first.pt);
-					a.second.pt = ::log(a.second.pt);
+				[](range<scalarreal> a) {
+					a.first.pt = log(a.first.pt);
+					a.second.pt = log(a.second.pt);
 					return a;
 					});
 	}
 	if (isop(e,heavisideop)) {
 		return rangeprop(e.children()[0]).modify(
-				[](const range<double> &a) {
-					return range<double>{a.first < 0.0 ? 0.0 : 1.0,
-								a.second < 0.0 ? 0.0 : 1.0};
+				[](const range<scalarreal> &a) {
+					return range<scalarreal>{a.first < 0 ? 0 : 1,
+								a.second < 0 ? 0 : 1};
 					return a;
 				});
 	}
 	if (isop(e,diracop)) {
 		return rangeprop(e.children()[0]).modify(
-				[](const range<double> &a) {
-					return range<double>{0.0,
-						a.overlap(range<double>(0.0,0.0)) ?
-							std::numeric_limits<double>::infinity()
-							: 0.0};
+				[](const range<scalarreal> &a) {
+					return range<scalarreal>{scalarreal{0},
+						a.overlap(range<scalarreal>(0,0)) ?
+							std::numeric_limits<scalarreal>::infinity()
+							: scalarreal{0}};
 				});
 	}
-	return {-std::numeric_limits<double>::infinity(),
-					std::numeric_limits<double>::infinity()};
+	return {-std::numeric_limits<scalarreal>::infinity(),
+					std::numeric_limits<scalarreal>::infinity()};
 }
 
 bool ispos(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
-		if (r.first<=0.0) return false;
+		if (r.first<=0) return false;
 	return true;
 }
 bool isneg(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
-		if (r.second>=0.0) return false;
+		if (r.second>=0) return false;
 	return true;
 }
 bool isnonneg(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
-		if (r.first<0.0) return false;
+		if (r.first<0) return false;
 	return true;
 }
 bool isnonpos(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
-		if (r.second>0.0) return false;
+		if (r.second>0) return false;
 	return true;
 }
-bool isconst(const expr &e, double k) {
+bool isconst(const expr &e, scalarreal k) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
@@ -265,14 +265,14 @@ bool iseven(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
-		if (r.first!=r.second || std::fmod(r.first,2.0)!=0.0) return false;
+		if (r.first!=r.second || !r.first.pt.iseven()) return false;
 	return true;
 }
 bool isodd(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
 	for(auto &r : rs.x)
-		if (r.first!=r.second || std::fmod(r.first,2.0)!=1.0) return false;
+		if (r.first!=r.second || !r.first.pt.isodd()) return false;
 	return true;
 }
 
@@ -281,15 +281,15 @@ struct normswitch : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
 		if (!isop(e,switchop)) return {};
 		auto &c0 = e.children()[0];
-		expr tosub = newconst(0.0);
+		expr tosub = scalar(0);
 		if (c0.isleaf()) {
-			if (!isconst(c0) || getconst<double>(c0)==0.0)
+			if (!isconst(c0) || getconst<scalarreal>(c0)==0)
 				return {};
 			tosub = c0;
 		} else {
 			if (!isop(c0,pluschain) || c0.children().empty()
 					|| !isconst(c0.children()[0])
-					|| getconst<double>(c0.children()[0])==0.0)
+					|| getconst<scalarreal>(c0.children()[0])==0)
 				return {};
 			tosub = c0.children()[0];
 		}
@@ -356,11 +356,11 @@ struct mergeswitch : public rewriterule {
 		if (!isop(e,switchop)) return false;
 		auto &ch = e.children();
 		if (checkte && !(ch[0]==te)) return false;
-		double lastk = 0;
+		scalarreal lastk = 0;
 		for(int i=2;i<ch.size();i+=2) {
 			if (!isconst(ch[i])) return false;
 			if (i>2) {
-				double newk = getconst<double>(ch[i]);
+				scalarreal newk = getconst<scalarreal>(ch[i]);
 				if (newk<lastk) return false;
 				lastk = newk;
 			}
@@ -372,13 +372,13 @@ struct mergeswitch : public rewriterule {
 		if (!ismergeable(e,e,false)) return {};
 		auto &ch = e.children();
 		int mchi = -1;
-		double preth = -std::numeric_limits<double>::infinity();
-		double postth = std::numeric_limits<double>::infinity();
+		scalarreal preth = -std::numeric_limits<scalarreal>::infinity();
+		scalarreal postth = std::numeric_limits<scalarreal>::infinity();
 		for(int i=1;i<ch.size();i+=2)
 			if (ismergeable(ch[i],ch[0])) {
 				mchi = i;
-				if (i>1) preth = getconst<double>(ch[i-1]);
-				if (i+1 < ch.size()) postth = getconst<double>(ch[i+1]);
+				if (i>1) preth = getconst<scalarreal>(ch[i-1]);
+				if (i+1 < ch.size()) postth = getconst<scalarreal>(ch[i+1]);
 				break;
 			}
 		if (mchi==-1) return {};
@@ -389,8 +389,8 @@ struct mergeswitch : public rewriterule {
 			newch.emplace_back(ch[i]);
 		newch.reserve(ch.size()+mch.size()-2);
 		for(int i=1;i<mch.size();i+=2) {
-			double th = (i+1<mch.size() ? getconst<double>(mch[i+1])
-							: std::numeric_limits<double>::infinity());
+			scalarreal th = (i+1<mch.size() ? getconst<scalarreal>(mch[i+1])
+							: std::numeric_limits<scalarreal>::infinity());
 			if (th > preth) {
 				newch.emplace_back(mch[i]);
 				if (th < postth && i+1<mch.size()) newch.emplace_back(mch[i+1]);
@@ -422,13 +422,13 @@ struct sumexpand : public rewriterule {
 		if (!isop(e,sumop)) return {};
 		auto &ch = e.children();
 		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
-		double x0 = getconst<double>(ch[2]);
-		double x1 = getconst<double>(ch[3]);
-		if (x1 < x0) return optional<expr>{in_place,newconst(0.0)};
+		scalarreal x0 = getconst<scalarreal>(ch[2]);
+		scalarreal x1 = getconst<scalarreal>(ch[3]);
+		if (x1 < x0) return optional<expr>{in_place,scalar(0)};
 		if (x1 >= x0+nterms) return {};
 		std::vector<expr> terms;
-		for(double x=x0;x<=x1;x+=1.0)
-			terms.emplace_back(substitute(ch[1],ch[0],newconst(x)));
+		for(scalarreal x=x0;x<=x1;x+=1)
+			terms.emplace_back(substitute(ch[1],ch[0],scalar(x)));
 		return optional<expr>{in_place,pluschain,terms};
 	}
 };
@@ -442,13 +442,13 @@ struct prodexpand : public rewriterule {
 		if (!isop(e,prodop)) return {};
 		auto &ch = e.children();
 		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
-		double x0 = getconst<double>(ch[2]);
-		double x1 = getconst<double>(ch[3]);
-		if (x1 < x0) return optional<expr>{in_place,newconst(1.0)};
+		scalarreal x0 = getconst<scalarreal>(ch[2]);
+		scalarreal x1 = getconst<scalarreal>(ch[3]);
+		if (x1 < x0) return optional<expr>{in_place,scalar(1)};
 		if (x1 >= x0+nterms) return {};
 		std::vector<expr> terms;
-		for(double x=x0;x<=x1;x+=1.0)
-			terms.emplace_back(substitute(ch[1],ch[0],newconst(x)));
+		for(scalarreal x=x0;x<=x1;x+=1)
+			terms.emplace_back(substitute(ch[1],ch[0],scalar(x)));
 		return optional<expr>{in_place,multiplieschain,terms};
 	}
 };
@@ -459,8 +459,8 @@ struct prodexpand : public rewriterule {
 // (for instance, we probably don't want to be evaluating "factorial"
 //  or "choose" directly)
 expr factorial(const expr &n) {
-	expr i = newvar<double>(); 
-	return prod(i,i,newconst(1.0),n);
+	expr i = newvar<scalarreal>(); 
+	return prod(i,i,scalar(1),n);
 }
 
 expr nchoosek(const expr &n, const expr k) {
@@ -468,23 +468,23 @@ expr nchoosek(const expr &n, const expr k) {
 }
 
 expr B0(const expr &m) {
-	expr k=newvar<double>(), v=newvar<double>();
+	expr k=newvar<scalarreal>(), v=newvar<scalarreal>();
 
 	// pos series
-	//return sum(sum(pow(newconst(-1.0),v)*nchoosek(k,v)*pow(v+1.0,m)/(k+1.0),v,newconst(0.0),k),k,newconst(0.0),m);
+	//return sum(sum(pow(scalar(-1),v)*nchoosek(k,v)*pow(v+1,m)/(k+1),v,scalar(0),k),k,scalar(0),m);
 	// neg series
-	return sum(sum(pow(newconst(-1.0),v)*nchoosek(k,v)*pow(v,m)/(k+1.0),v,newconst(0.0),k),k,newconst(0.0),m);
+	return sum(sum(pow(scalar(-1),v)*nchoosek(k,v)*pow(v,m)/(k+1),v,scalar(0),k),k,scalar(0),m);
 }
 
 // Bernoulli polynomial
 expr B(const expr &n, const expr &m) {
-	expr k = newvar<double>();
-	return sum(nchoosek(n,k)*B0(n-k)*pow(m,k),k,newconst(0.0),n);
+	expr k = newvar<scalarreal>();
+	return sum(nchoosek(n,k)*B0(n-k)*pow(m,k),k,scalar(0),n);
 }
 
 expr psum(const expr &p, const expr &n) {
-	expr k = newvar<double>();
-	return sum(nchoosek(p,k)*B0(p-k)*pow(-1.0,p-k)/(k+1.0)*pow(n,k+1.0),k,newconst(0.0),p);
+	expr k = newvar<scalarreal>();
+	return sum(nchoosek(p,k)*B0(p-k)*pow(-1,p-k)/(k+1)*pow(n,k+1),k,scalar(0),p);
 }
 
 // TODO:  will need to be separated out into general and specific to scalars
@@ -493,10 +493,10 @@ std::vector<ruleptr> scalarruleset
 	  toptr<scopeeval>(),
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
 
-  SRR(E1_ - E2_                          ,  P1_ + -1.0*P2_                   ),
-  SRR(-E1_                               ,  -1.0*P1_                         ),
+  SRR(E1_ - E2_                          ,  P1_ + -1*P2_                   ),
+  SRR(-E1_                               ,  -1*P1_                         ),
 
-  SRR(E1_ / E2_                          ,  P1_ * pow(P2_,-1.0)              ),
+  SRR(E1_ / E2_                          ,  P1_ * pow(P2_,-1)              ),
 
   /*
   SRR(E1_ + (E2_ + E3_)                  ,  P1_ + P2_ + P3_                  ),
@@ -519,33 +519,33 @@ std::vector<ruleptr> scalarruleset
   // some of these are only true "almost everywhere"
   // and might need to be removed for some applications
   // (or, we need a "domain" to be propagated with the expr)
-  SRR( 0.0 + E1_                          ,  P1_                             ),
-  SRR( -0.0 + E1_                          ,  P1_                             ),
-  SRR( 1.0 * E1_                          ,  P1_                             ),
-  SRR( 0.0 * E1_                          ,  newconst(0.0)                   ),
-  SRR( -0.0 * E1_                          ,  newconst(0.0)                   ),
-  SRR( pow(E1_,1.0)                       ,  P1_                             ),
-  SRR( pow(E1_,0.0)                       ,  newconst(1.0)                   ),
-  SRR( pow(1.0,E1_)                       ,  newconst(1.0)                   ),
-  SRR( pow(0.0,E1_)                       ,  newconst(0.0)                   ),
+  SRR( 0 + E1_                          ,  P1_                             ),
+  SRR( -0 + E1_                          ,  P1_                             ),
+  SRR( 1 * E1_                          ,  P1_                             ),
+  SRR( 0 * E1_                          ,  scalar(0)                   ),
+  SRR( -0 * E1_                          ,  scalar(0)                   ),
+  SRR( pow(E1_,1)                       ,  P1_                             ),
+  SRR( pow(E1_,0)                       ,  scalar(1)                   ),
+  SRR( pow(1,E1_)                       ,  scalar(1)                   ),
+  SRR( pow(0,E1_)                       ,  scalar(0)                   ),
 
   SRR( E1_ + E1_                          ,  2*P1_                           ),
   SRR( E1_ + E1_ + E2_                    ,  2*P1_ + P2_                     ),
 
-  SRR( E1_ * E1_                          ,  pow(P1_,2.0)                    ),
-  SRR( E1_ * E1_ * E2_                    ,  pow(P1_,2.0)*P2_                ),
+  SRR( E1_ * E1_                          ,  pow(P1_,2)                    ),
+  SRR( E1_ * E1_ * E2_                    ,  pow(P1_,2)*P2_                ),
 
   SRR( K1_*(E2_ + E3_)                    ,  P1_*P2_ + P1_*P3_               ),
 
   SRR( K1_*E2_ + K3_*E2_                  ,  (P1_+P3_) * P2_                 ),
   SRR( K1_*E2_ + K3_*E2_ + E4_            ,  (P1_+P3_) * P2_ + P4_           ),
-  SRR( E2_ + K3_*E2_                      ,  (newconst(1.0)+P3_) * P2_       ),
-  SRR( E2_ + K3_*E2_ + E4_                ,  (newconst(1.0)+P3_) * P2_ + P4_ ),
+  SRR( E2_ + K3_*E2_                      ,  (scalar(1)+P3_) * P2_       ),
+  SRR( E2_ + K3_*E2_ + E4_                ,  (scalar(1)+P3_) * P2_ + P4_ ),
 
   SRR( pow(E1_,E2_) * pow(E1_,E3_)        ,  pow(P1_,P2_+P3_)                ),
   SRR( pow(E1_,E2_) * pow(E1_,E3_) * E4_  ,  pow(P1_,P2_+P3_)*P4_            ),
-  SRR( E1_ * pow(E1_,E3_)                 ,  pow(P1_,newconst(1.0)+P3_)      ),
-  SRR( E1_ * pow(E1_,E3_) * E4_           ,  pow(P1_,newconst(1.0)+P3_)*P4_  ),
+  SRR( E1_ * pow(E1_,E3_)                 ,  pow(P1_,scalar(1)+P3_)      ),
+  SRR( E1_ * pow(E1_,E3_) * E4_           ,  pow(P1_,scalar(1)+P3_)*P4_  ),
 
   SRR( pow(pow(W1_,E2_),E3_)              ,  pow(P1_,P2_*P3_)                ),
   SRR( pow(pow(K1_,W2_),W3_)              ,  pow(P1_,P2_*P3_)                ),
@@ -567,9 +567,9 @@ std::vector<ruleptr> scalarruleset
   SRR( abs(E1_)                           ,  -P1_ ,
    [](const exprmap &m) { return isnonpos(m.at(1)); } ),
 
-  SRR( deriv(E1_,V2_,V3_)                 ,  newconst(0.0),
+  SRR( deriv(E1_,V2_,V3_)                 ,  scalar(0),
       [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); }),
-  SRR( deriv(V1_,V1_,V3_)                 ,  newconst(1.0)                   ),
+  SRR( deriv(V1_,V1_,V3_)                 ,  scalar(1)                   ),
 
   SRR( deriv(E1_+E2_,V3_,V4_)             ,
 		                           deriv(P1_,P3_,P4_) + deriv(P2_,P3_,P4_) ),
@@ -580,7 +580,7 @@ std::vector<ruleptr> scalarruleset
 
   SRR( deriv(pow(E1_,E2_),V3_,V4_)        ,
 	  evalat(pow(P1_,P2_),P3_,P4_)*evalat(log(P1_),P3_,P4_)*deriv(P2_,P3_,P4_)
-   + evalat(P2_,P3_,P4_)*evalat(pow(P1_,P2_-1.0),P3_,P4_)*deriv(P1_,P3_,P4_) ),
+   + evalat(P2_,P3_,P4_)*evalat(pow(P1_,P2_-1),P3_,P4_)*deriv(P1_,P3_,P4_) ),
 
   SRR( deriv(log(E1_),V2_,V3_)            ,
 		                          deriv(P1_,P2_,P3_) / evalat(P1_,P2_,P3_) ),
@@ -588,8 +588,8 @@ std::vector<ruleptr> scalarruleset
   SRR( deriv(expr{heavisideop,E1_},V2_,V3_),
 				 evalat(expr{diracop,E1_},V2_,V3_)*deriv(E1_,V2_,V3_) ),
 
-  // perhaps need "max(0,P4_-P3_+1.0)"??
-  SRR( sum(E1_,V2_,E3_,E4_)               , P1_*(P4_-P3_+1.0),
+  // perhaps need "max(0,P4_-P3_+1)"??
+  SRR( sum(E1_,V2_,E3_,E4_)               , P1_*(P4_-P3_+1),
       [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); }   ),
 
   SRR( sum(E1_*E2_,V3_,E4_,E5_)           , P1_*sum(P2_,P3_,P4_,P5_),
@@ -602,11 +602,11 @@ std::vector<ruleptr> scalarruleset
 
   // Faulhaber's formula
   SRR( sum(pow(V1_,E2_),V1_,E3_,E4_)      ,
-	//	 			(B(P2_+1.0,P4_+1.0) - B(P2_+1.0,P3_+1.0))/(P2_+1.0) ,
-		(psum(P2_,P4_) - psum(P2_,P3_-1.0)),
+	//	 			(B(P2_+1,P4_+1) - B(P2_+1,P3_+1))/(P2_+1) ,
+		(psum(P2_,P4_) - psum(P2_,P3_-1)),
   	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1))); }    ),
   SRR( sum(V2_,V2_,E3_,E4_)      ,
-		(psum(newconst(1.0),P4_) - psum(newconst(1.0),P3_-1.0))    ),
+		(psum(scalar(1),P4_) - psum(scalar(1),P3_-1))    ),
 
   toptr<consteval>(),
 

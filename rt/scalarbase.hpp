@@ -4,6 +4,20 @@
 #include <functional>
 #include "expr.hpp"
 #include <cmath>
+#include "scalartype.hpp"
+
+expr scalar(double d) {
+	if (std::fmod(d,1.0)==0.0) return newconst(scalarreal{(int)d});
+	return newconst(scalarreal{d});
+}
+
+expr scalar(int i) {
+	return newconst(scalarreal{i});
+}
+
+expr scalar(scalarreal s) {
+	return newconst(scalarreal{std::move(s)});
+}
 
 // shorter to write...
 template<typename T, typename... Xs> auto toptr(Xs &&...xs) {
@@ -12,15 +26,15 @@ template<typename T, typename... Xs> auto toptr(Xs &&...xs) {
 
 template<typename T> auto toptr() { return std::make_shared<T>(); }
 
-const op plusop = toptr<binopinfo<std::plus<double>,double,double>>
+const op plusop = toptr<binopinfo<std::plus<scalarreal>,scalarreal,scalarreal>>
 			(std::string("+"),true,true,6);
-const op minusop = toptr<binopinfo<std::minus<double>,double,double>>
+const op minusop = toptr<binopinfo<std::minus<scalarreal>,scalarreal,scalarreal>>
 			(std::string("-"),true,true,6);
-const op negateop = toptr<uniopinfo<std::negate<double>,double>>
+const op negateop = toptr<uniopinfo<std::negate<scalarreal>,scalarreal>>
 			(std::string("-"),false,false,3);
-const op multipliesop = toptr<binopinfo<std::multiplies<double>,double,double>>
+const op multipliesop = toptr<binopinfo<std::multiplies<scalarreal>,scalarreal,scalarreal>>
 			(std::string("*"),true,true,4);
-const op dividesop = toptr<binopinfo<std::divides<double>,double,double>>
+const op dividesop = toptr<binopinfo<std::divides<scalarreal>,scalarreal,scalarreal>>
 			(std::string("/"),true,true,4);
 
 const std::shared_ptr<opchain> pluschain = std::make_shared<opchain>(plusop);
@@ -29,21 +43,21 @@ const std::shared_ptr<opchain> multiplieschain = std::make_shared<opchain>(multi
 template<typename T>
 struct powerinfo {
 	constexpr T operator()(const T &b, const T &e) const {
-		return std::pow(b,e);
+		return pow(b,e);
 	}
 };
 
-const op powerop = toptr<binopinfo<powerinfo<double>,double,double>>
+const op powerop = toptr<binopinfo<powerinfo<scalarreal>,scalarreal,scalarreal>>
 			(std::string("^"),true,false,2);
 
 template<typename T>
 struct natloginfo {
 	constexpr T operator()(const T &e) const {
-		return std::log(e);
+		return log(e);
 	}
 };
 
-const op logop = toptr<uniopinfo<natloginfo<double>,double>>
+const op logop = toptr<uniopinfo<natloginfo<scalarreal>,scalarreal>>
 			(std::string("log"),false,false,5);
 
 
@@ -54,25 +68,29 @@ expr operator+(const expr &e1, const expr &e2) {
 		return {pluschain,ch};
 	} else return {pluschain,e1,e2};
 }
-expr operator+(const double e1, const expr &e2) {
-	return {pluschain,newconst(e1),e2};
+template<typename S>
+expr operator+(const S e1, const expr &e2) {
+	return {pluschain,scalar(e1),e2};
 }
-expr operator+(const expr &e1, const double &e2) {
+template<typename S>
+expr operator+(const expr &e1, const S &e2) {
 	if (!e1.isleaf() && e1.asnode()==pluschain) {
 		auto ch = e1.children();
-		ch.emplace_back(newconst(e2));
+		ch.emplace_back(scalar(e2));
 		return {pluschain,ch};
-	} else return {pluschain,e1,newconst(e2)};
+	} else return {pluschain,e1,scalar(e2)};
 }
 
 expr operator-(const expr &e1, const expr &e2) {
 	return {minusop,e1,e2};
 }
-expr operator-(const double e1, const expr &e2) {
-	return {minusop,newconst(e1),e2};
+template<typename S>
+expr operator-(const S &e1, const expr &e2) {
+	return {minusop,scalar(e1),e2};
 }
-expr operator-(const expr &e1, const double &e2) {
-	return {minusop,e1,newconst(e2)};
+template<typename S>
+expr operator-(const expr &e1, const S &e2) {
+	return {minusop,e1,scalar(e2)};
 }
 
 expr operator*(const expr &e1, const expr &e2) {
@@ -82,36 +100,42 @@ expr operator*(const expr &e1, const expr &e2) {
 		return {multiplieschain,ch};
 	} else return {multiplieschain,e1,e2};
 }
-expr operator*(const double e1, const expr &e2) {
-	return {multiplieschain,newconst(e1),e2};
+template<typename S>
+expr operator*(const S &e1, const expr &e2) {
+	return {multiplieschain,scalar(e1),e2};
 }
-expr operator*(const expr &e1, const double &e2) {
+template<typename S>
+expr operator*(const expr &e1, const S &e2) {
 	if (!e1.isleaf() && e1.asnode()==multiplieschain) {
 		auto ch = e1.children();
 		ch.emplace_back(e2);
 		return {multiplieschain,ch};
-	} else return {multiplieschain,e1,newconst(e2)};
+	} else return {multiplieschain,e1,scalar(e2)};
 }
 
 expr operator/(const expr &e1, const expr &e2) {
 	return {dividesop,e1,e2};
 }
-expr operator/(const double e1, const expr &e2) {
-	return {dividesop,newconst(e1),e2};
+template<typename S>
+expr operator/(const S &e1, const expr &e2) {
+	return {dividesop,scalar(e1),e2};
 }
-expr operator/(const expr &e1, const double &e2) {
-	return {dividesop,e1,newconst(e2)};
+template<typename S>
+expr operator/(const expr &e1, const S &e2) {
+	return {dividesop,e1,scalar(e2)};
 }
 
 expr operator-(const expr &e) {
 	return {negateop,e};
 }
 
-expr pow(const expr &e1, const double &e2) {
-	return {powerop,e1,newconst(e2)};
+template<typename S>
+expr pow(const expr &e1, const S &e2) {
+	return {powerop,e1,scalar(e2)};
 }
-expr pow(const double &e1, const expr &e2) {
-	return {powerop,newconst(e1),e2};
+template<typename S>
+expr pow(const S &e1, const expr &e2) {
+	return {powerop,scalar(e1),e2};
 }
 expr pow(const expr &e1, const expr &e2) {
 	return {powerop,e1,e2};
@@ -121,10 +145,11 @@ expr log(const expr &e) {
 	return {logop,e};
 }
 
-constexpr double scalare = exp(1.0);
+const expr scalare = newconst(scalarreal{scalarreal::eulerconst{}});
+const expr scalarpi = newconst(scalarreal{scalarreal::piconst{}});
 
 expr exp(const expr &e) {
-	return {powerop,newconst(scalare),e};
+	return {powerop,scalare,e};
 }
 
 
@@ -159,8 +184,8 @@ struct switchopinfo : public opinfo {
 	}
 };
 
-//const op condop = toptr<condopinfo<double>>();
-const op switchop = toptr<switchopinfo<double>>();
+//const op condop = toptr<condopinfo<scalarreal>>();
+const op switchop = toptr<switchopinfo<scalarreal>>();
 */
 
 template<typename T>
@@ -193,16 +218,16 @@ struct absinfo : public opinfo {
 	}
 };
 
-const op heavisideop = toptr<heavisideinfo<double>>();
-const op heavisideleftop = toptr<heavisideinfo<double>>(0.0);
-const op diracop = toptr<diracinfo<double>>();
-const op absop = toptr<absinfo<double>>();
+const op heavisideop = toptr<heavisideinfo<scalarreal>>();
+const op heavisideleftop = toptr<heavisideinfo<scalarreal>>(0.0);
+const op diracop = toptr<diracinfo<scalarreal>>();
+const op absop = toptr<absinfo<scalarreal>>();
 
 template<typename E1, typename E2, typename E3>
 expr cond(E1 &&condition, E2 &&negexp, E3 &&posexp) {
 	/*
 	return {switchop,std::forward<E1>(condition),
-		std::forward<E2>(negexp), newconst(0.0), std::forward<E3>(posexp)};
+		std::forward<E2>(negexp), scalar(0.0), std::forward<E3>(posexp)};
 		*/
 	return posexp*expr{heavisideop,condition}
 			+ negexp*expr{heavisideleftop,-1.0*condition};
@@ -244,7 +269,7 @@ struct derivopinfo : public scopeinfo {
 	derivopinfo() : scopeinfo(3,"d",false,false,5) {}
 };
 
-const op derivop = toptr<derivopinfo<double>>();
+const op derivop = toptr<derivopinfo<scalarreal>>();
 
 expr deriv(const expr &e, const expr &x) {
 	if (!isvar(x)) return noexpr;
@@ -276,32 +301,32 @@ struct bigopinfo : public scopeinfo {
 	}
 
 	virtual any eval(const std::vector<expr> &x) const {
-		T v0 = MYany_cast<double>(::eval(x[2])), v1 = MYany_cast<double>(::eval(x[3]));
+		T v0 = MYany_cast<scalarreal>(::eval(x[2])), v1 = MYany_cast<scalarreal>(::eval(x[3]));
 		any ret{id};
 		for(T v = v0; v<=v1; v++)
 			ret = bop->opeval(ret,
-				::eval(substitute(x[1],x[0],newconst(v))));
+				::eval(substitute(x[1],x[0],scalar(v))));
 		return ret;
 	}
 };
 
-const op sumop = toptr<bigopinfo<double>>(plusop,0.0,"sum");
-const op prodop = toptr<bigopinfo<double>>(multipliesop,1.0,"prod");
+const op sumop = toptr<bigopinfo<scalarreal>>(plusop,0.0,"sum");
+const op prodop = toptr<bigopinfo<scalarreal>>(multipliesop,1.0,"prod");
 
 expr sum(const expr &e, const expr &x, const expr &x0, const expr &x1) {
 	return {sumop,x,e,x0,x1};
 }
 template<typename T>
 expr sum(const expr &e, const expr &x, T x0, const expr &x1) {
-	return {sumop,x,e,newconst(x0),x1};
+	return {sumop,x,e,scalar(x0),x1};
 }
 template<typename T>
 expr sum(const expr &e, const expr &x, const expr &x0, T x1) {
-	return {sumop,x,e,x0,newconst<T>(x1)};
+	return {sumop,x,e,x0,scalar(x1)};
 }
 template<typename T0, typename T1>
 expr sum(const expr &e, const expr &x, T0 x0, T1 x1) {
-	return {sumop,x,e,newconst<T0>(x0),newconst<T1>(x1)};
+	return {sumop,x,e,scalar(x0),scalar(x1)};
 }
 
 expr prod(const expr &e, const expr &x, const expr &x0, const expr &x1) {
@@ -309,15 +334,15 @@ expr prod(const expr &e, const expr &x, const expr &x0, const expr &x1) {
 }
 template<typename T>
 expr prod(const expr &e, const expr &x, T x0, const expr &x1) {
-	return {prodop,x,e,newconst(x0),x1};
+	return {prodop,x,e,scalar(x0),x1};
 }
 template<typename T>
 expr prod(const expr &e, const expr &x, const expr &x0, T x1) {
-	return {prodop,x,e,x0,newconst<T>(x1)};
+	return {prodop,x,e,x0,scalar(x1)};
 }
 template<typename T0, typename T1>
 expr prod(const expr &e, const expr &x, T0 x0, T1 x1) {
-	return {prodop,x,e,newconst<T0>(x0),newconst<T1>(x1)};
+	return {prodop,x,e,scalar(x0),scalar(x1)};
 }
 
 #endif
