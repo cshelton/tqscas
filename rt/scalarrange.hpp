@@ -14,9 +14,9 @@ struct limpt {
 	bool left, closed;
 
 	limpt() {}
-	limpt(T v) : pt(v), closed(std::isfinite(v)), left(true) {}
-	limpt(T v, bool c) : pt(v), left(true), closed(c) {}
-	limpt(T v, bool c, bool l) : pt(v), left(l), closed(c) {}
+	limpt(const T &v) : pt(v), closed(std::isfinite(v)), left(true) {}
+	limpt(const T &v, bool l) : pt(v), left(l), closed(std::isfinite(v)) {}
+	limpt(const T &v, bool l, bool c) : pt(v), left(l), closed(c) {}
 	limpt(const limpt &) = default;
 	limpt(limpt &&) = default;
 	limpt &operator=(const limpt &) = default;
@@ -34,7 +34,7 @@ struct limpt {
 		limpt ret(*this);
 		ret.pt += p;
 		ret.closed &= p.closed;
-		ret.left &= p.left; // just ot make symmetric
+		ret.left &= p.left; // just to make symmetric
 		return ret;
 	}
 
@@ -42,7 +42,7 @@ struct limpt {
 		limpt ret(*this);
 		ret.pt *= p;
 		ret.closed &= p.closed;
-		ret.left &= p.left; // just ot make symmetric
+		ret.left &= p.left; // just to make symmetric
 		return ret;
 	}
 
@@ -132,6 +132,12 @@ template<typename T>
 	bool operator!=(const T &l, const limpt<T> &l2)  {
 		return limpt<T>{l}.cmp(l2)!=0;
 	}
+
+template<typename T>
+limpt<T> pow(const limpt<T> &b, const limpt<T> &e) {
+	auto retpt = pow(b.pt,e.pt);
+	return limpt<T>{retpt,b.closed && e.closed};
+}
 
 template<typename T>
 struct range : std::pair<limpt<T>,limpt<T>> {

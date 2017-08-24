@@ -8,6 +8,7 @@
 #include <memory>
 
 //#define SHOWRULES
+//#define SHOWCHANGES
 
 struct rewriterule {
 	virtual optional<expr> apply(const expr &e) const { return {}; }
@@ -66,7 +67,15 @@ optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules) {
 	if (!rete) return {};
 	while(true) {
 		auto newr = rewrite1(*rete,rules);
-		if (!newr) return rete;
+		if (!newr) {
+#ifdef SHOWCHANGES
+			std::cout << "complete change of " << std::endl;
+			std::cout << "\t" << tostring(e) << std::endl;
+			std::cout << "to" << std::endl;
+			std::cout << "\t" << tostring(*rete) << std::endl;
+#endif
+			return rete;
+		}
 		rete = newr;
 	}
 }
@@ -175,7 +184,12 @@ struct consteval : public rewriterule {
 		if (isconstexpr(e)) return optional<expr>{in_place,
 						newconst(e.asnode()->eval(e.children()))};
 		return {};
-		/*
+	}
+};
+
+struct trivialconsteval : public rewriterule {
+	virtual optional<expr> apply(const expr &e) const {
+		if (e.isleaf()) return {};
 		auto &ch = e.children();
 		for(auto &c : ch) 
 			if (!isconst(c)) return {};
@@ -183,8 +197,7 @@ struct consteval : public rewriterule {
 		subexpr.reserve(ch.size());
 		for(auto &c : ch)
 			subexpr.emplace_back(MYany_cast<constval>(c.asleaf()).v);
-		return optional<expr>{in_place,newconst(e.asnode()->eval(subexpr))};
-		*/
+		return optional<expr>{in_place,newconst(e.asnode()->opeval(subexpr))};
 	}
 };
 

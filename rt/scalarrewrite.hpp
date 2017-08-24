@@ -164,7 +164,8 @@ scalarset<scalarreal> rangeprop(const expr &e) {
 				rangeprop(e.children()[1]),
 				[](const range<scalarreal> &b, const range<scalarreal> &p) {
 					scalarset<scalarreal> ret;
-					if (b.first>0) {
+					limpt<scalarreal> zero(scalarreal{0});
+					if (b.first>zero) {
 						auto v1=pow(b.first,p.first),
 							v2=pow(b.second,p.second),
 							v3=pow(b.first,p.second),
@@ -174,20 +175,55 @@ scalarset<scalarreal> rangeprop(const expr &e) {
 							std::max(std::max(v1,v2),std::max(v3,v4)));
 						return ret;
 					}
-					if (b.second>0) {
-						auto v1=pow(0,p.first),
+					if (b.second>zero) {
+						auto v1=pow(zero,p.first),
 							v2=pow(b.second,p.second),
-							v3=pow(0,p.second),
+							v3=pow(zero,p.second),
 							v4=pow(b.second,p.first);
+						v1.closed = v3.closed = false;
 						ret.x.emplace(
 							std::min(std::min(v1,v2),std::min(v3,v4)),
 							std::max(std::max(v1,v2),std::max(v3,v4)));
 					}
+					// what to do with negative base???
+					if (p.first.pt==p.second.pt) { // single exponent
+						if (p.first.pt.isint()) {
+							auto v1 = pow(zero,p.first);
+							auto v2 = pow(b.first,p.first);
+							ret.x.emplace(v1,v2);
+						}
+					} else {
+						limpt<scalarreal> b2 = b.second.pt>=zero ? zero :
+								(b.second.pt.isint() ? b.second :
+									(limpt<scalarreal>{
+										b.first.pt.floor()}));
+						limpt<scalarreal> b1 = b2-limpt<scalarreal>{scalarreal{1}};
+						if (b1>b.first) {
+							auto v1 = pow(b2,p.first);
+							auto v2 = pow(b1,p.first);
+							auto v3 = pow(b2,p.second);
+							auto v4 = pow(b1,p.second);
+							ret.x.emplace(
+								std::min(std::min(v1,v2),
+									std::min(v3,v4)),
+								std::max(std::max(v1,v2),
+									std::max(v3,v4)));
+						} else {
+							auto v1 = pow(b2,p.first);
+							auto v3 = pow(b2,p.second);
+							ret.x.emplace(v1,v3);
+						}
+					}
+					/* not sure why this was the code... seems very wrong
+					 * p not even mentioned!
+					 */
+					/*
 					for(auto ip = b.first.closed
 								|| !b.first.pt.iseven() ?
 							ceil(b.first.pt/2)*2
 							: ceil(b.first.pt/2+1)*2;
-							ip<0 && b.second>ip;ip+=2)
+							ip<0 && b.second>ip;ip+=2) {
+						std::cout << "looking at " << tostring(b.first.pt) << ' ' << tostring(b.second.pt) << ' ' << tostring(ip) << std::endl;
 						ret.x.emplace(
 							b.first<=0 && b.second>=0 ?
 								scalarreal{0} : pow(
@@ -195,6 +231,9 @@ scalarset<scalarreal> rangeprop(const expr &e) {
 										abs(b.second)),ip),
 							pow(std::max(abs(b.first),
 									abs(b.second)),ip));
+					}
+					*/
+
 				});
 	}
 	if (isop(e,logop)) {
@@ -413,43 +452,26 @@ ruleptr SRR(const expr &s, const expr &p, F &&f) {
 	return SR(chainpatternmod(s),p,std::forward<F>(f));
 }
 
-struct sumexpand : public rewriterule {
+template<typename T>
+struct bigopexpand : public rewriterule {
 	int nterms;
+	op bigop, chainop;
+	T id;
 
-	sumexpand(int n) : nterms(n) { }
+	bigopexpand(int n, op bop, op cop, T i) : nterms(n), bigop(bop), chainop(cop), id(i) {}
 
 	virtual optional<expr> apply(const expr &e) const {
-		if (!isop(e,sumop)) return {};
+		if (!isop(e,bigop)) return {};
 		auto &ch = e.children();
 		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
 		scalarreal x0 = getconst<scalarreal>(ch[2]);
 		scalarreal x1 = getconst<scalarreal>(ch[3]);
-		if (x1 < x0) return optional<expr>{in_place,scalar(0)};
+		if (x1 < x0) return optional<expr>{in_place,scalar(id)};
 		if (x1 >= x0+nterms) return {};
 		std::vector<expr> terms;
 		for(scalarreal x=x0;x<=x1;x+=1)
 			terms.emplace_back(substitute(ch[1],ch[0],scalar(x)));
-		return optional<expr>{in_place,pluschain,terms};
-	}
-};
-
-struct prodexpand : public rewriterule {
-	int nterms;
-
-	prodexpand(int n) : nterms(n) {}
-
-	virtual optional<expr> apply(const expr &e) const {
-		if (!isop(e,prodop)) return {};
-		auto &ch = e.children();
-		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
-		scalarreal x0 = getconst<scalarreal>(ch[2]);
-		scalarreal x1 = getconst<scalarreal>(ch[3]);
-		if (x1 < x0) return optional<expr>{in_place,scalar(1)};
-		if (x1 >= x0+nterms) return {};
-		std::vector<expr> terms;
-		for(scalarreal x=x0;x<=x1;x+=1)
-			terms.emplace_back(substitute(ch[1],ch[0],scalar(x)));
-		return optional<expr>{in_place,multiplieschain,terms};
+		return optional<expr>{in_place,chainop,terms};
 	}
 };
 
@@ -489,7 +511,7 @@ expr psum(const expr &p, const expr &n) {
 
 // TODO:  will need to be separated out into general and specific to scalars
 std::vector<ruleptr> scalarruleset 
-	{{//toptr<consteval>(),
+	{{toptr<trivialconsteval>(),
 	  toptr<scopeeval>(),
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
 
@@ -519,15 +541,16 @@ std::vector<ruleptr> scalarruleset
   // some of these are only true "almost everywhere"
   // and might need to be removed for some applications
   // (or, we need a "domain" to be propagated with the expr)
+  //
   SRR( 0 + E1_                          ,  P1_                             ),
   SRR( -0 + E1_                          ,  P1_                             ),
   SRR( 1 * E1_                          ,  P1_                             ),
   SRR( 0 * E1_                          ,  scalar(0)                   ),
   SRR( -0 * E1_                          ,  scalar(0)                   ),
   SRR( pow(E1_,1)                       ,  P1_                             ),
-  SRR( pow(E1_,0)                       ,  scalar(1)                   ),
   SRR( pow(1,E1_)                       ,  scalar(1)                   ),
   SRR( pow(0,E1_)                       ,  scalar(0)                   ),
+  SRR( pow(E1_,0)                       ,  scalar(1)                   ),
 
   SRR( E1_ + E1_                          ,  2*P1_                           ),
   SRR( E1_ + E1_ + E2_                    ,  2*P1_ + P2_                     ),
@@ -597,8 +620,8 @@ std::vector<ruleptr> scalarruleset
   SRR( sum(E1_*E2_,V3_,E4_,E5_)           , sum(P1_,P3_,P4_,P5_)*P2_,
 	 [](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); }   ),
 
-  toptr<sumexpand>(3),
-  toptr<prodexpand>(3),
+  toptr<bigopexpand<scalarreal>>(3,sumop,pluschain,0),
+  toptr<bigopexpand<scalarreal>>(3,prodop,multiplieschain,1),
 
   // Faulhaber's formula
   SRR( sum(pow(V1_,E2_),V1_,E3_,E4_)      ,

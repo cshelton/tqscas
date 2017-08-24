@@ -42,7 +42,6 @@ int main(int argc, char **argv) {
 	checkrewrite(deriv(x*x,x),2*x);
 	checkrewrite(deriv(log(x*y),x),pow(x,-1));
 	checkrewrite(deriv(log(x+y*x),x),(1+y)*pow(x+x*y,-1));
-// STUCK HERE... (probably in range propation) TODO
 	checkrewrite(abs(x*x),pow(x,2));
 	checkrewrite(abs(-x*x),pow(x,2));
 	checkrewrite(abs(log(1.0+x*x)),log(1.0+pow(x,2)));
@@ -57,9 +56,7 @@ int main(int argc, char **argv) {
 			2.0*sum(abs(x),x,1.0,z));
 	checkrewrite(sum(x*x,x,0.0,y),scalarreal{1,6}*y + scalarreal{1,2}*pow(y,2) + scalarreal{1,3}*pow(y,3));
 	checkrewrite(sum(x,x,0.0,y),scalarreal{1,2}*y+scalarreal{1,2}*pow(y,2));
-/*
 	checkrewrite(sum(x,x,1.0,y),0.5*y+0.5*pow(y,2.0));
 	checkrewrite(sum(x,x,2.0,y),-1.0+0.5*y+0.5*pow(y,2.0));
 	checkrewrite(sum(x,x,3.0,y),-3.0+0.5*y+0.5*pow(y,2.0));
-*/
 }

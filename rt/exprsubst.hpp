@@ -77,7 +77,7 @@ expr replacelocal(const expr &e) {
 			if (!isop<scopeinfo>(ex) ||
 			    isplaceholder(ex.children()[0]))
 				return optional<expr>{};
-			expr nv = newvar<double>();
+			expr nv = newvar(getvartype(ex.children()[0]));
 			return optional<expr>{in_place,substitute(ex,ex.children()[0],nv)};
 			});
 }

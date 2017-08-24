@@ -191,11 +191,11 @@ const op switchop = toptr<switchopinfo<scalarreal>>();
 template<typename T>
 struct heavisideinfo : public opinfo {
 	T zeroval;
-	heavisideinfo(T zval=1.0) : opinfo(1,"H",false,false,5), zeroval(zval) {}
+	heavisideinfo(T zval=1) : opinfo(1,"H",false,false,5), zeroval(zval) {}
 
 	virtual any opeval(const any &x1) const {
-		return (MYany_cast<T>(x1)>0.0) ? any{T(1.0)} : 
-			(MYany_cast<T>(x1)==0.0 ? any{zeroval} : any{T(0.0)});
+		return (MYany_cast<T>(x1)>0) ? any{T(1)} : 
+			(MYany_cast<T>(x1)==0 ? any{zeroval} : any{T(0)});
 	}
 };
 
@@ -204,7 +204,7 @@ struct diracinfo : public opinfo {
 	diracinfo(): opinfo(1,"delta",false,false,5) {}
 
 	virtual any opeval(const any &x1) const {
-		return (MYany_cast<T>(x1)==0) ? any{std::numeric_limits<T>::infinity()} : any{T(0.0)};
+		return (MYany_cast<T>(x1)==0) ? any{std::numeric_limits<T>::infinity()} : any{T(0)};
 	}
 };
 
@@ -219,7 +219,7 @@ struct absinfo : public opinfo {
 };
 
 const op heavisideop = toptr<heavisideinfo<scalarreal>>();
-const op heavisideleftop = toptr<heavisideinfo<scalarreal>>(0.0);
+const op heavisideleftop = toptr<heavisideinfo<scalarreal>>(0);
 const op diracop = toptr<diracinfo<scalarreal>>();
 const op absop = toptr<absinfo<scalarreal>>();
 
@@ -227,14 +227,14 @@ template<typename E1, typename E2, typename E3>
 expr cond(E1 &&condition, E2 &&negexp, E3 &&posexp) {
 	/*
 	return {switchop,std::forward<E1>(condition),
-		std::forward<E2>(negexp), scalar(0.0), std::forward<E3>(posexp)};
+		std::forward<E2>(negexp), scalar(0), std::forward<E3>(posexp)};
 		*/
 	return posexp*expr{heavisideop,condition}
-			+ negexp*expr{heavisideleftop,-1.0*condition};
+			+ negexp*expr{heavisideleftop,-1*condition};
 }
 
 expr abs(const expr &e) {
-	//return cond(e,-1.0*e,e);
+	//return cond(e,-1*e,e);
 	return {absop,e};
 }
 
@@ -300,6 +300,7 @@ struct bigopinfo : public scopeinfo {
 			&& std::isfinite(getconst<T>(x[3]));
 	}
 
+
 	virtual any eval(const std::vector<expr> &x) const {
 		T v0 = MYany_cast<scalarreal>(::eval(x[2])), v1 = MYany_cast<scalarreal>(::eval(x[3]));
 		any ret{id};
@@ -310,8 +311,8 @@ struct bigopinfo : public scopeinfo {
 	}
 };
 
-const op sumop = toptr<bigopinfo<scalarreal>>(plusop,0.0,"sum");
-const op prodop = toptr<bigopinfo<scalarreal>>(multipliesop,1.0,"prod");
+const op sumop = toptr<bigopinfo<scalarreal>>(plusop,0,"sum");
+const op prodop = toptr<bigopinfo<scalarreal>>(multipliesop,1,"prod");
 
 expr sum(const expr &e, const expr &x, const expr &x0, const expr &x1) {
 	return {sumop,x,e,x0,x1};
