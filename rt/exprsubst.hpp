@@ -7,7 +7,7 @@
 
 expr substitute(const expr &e, const expr &x, const expr &v) {
 	return e.map([x,v](const expr &ex) {
-			if (ex==x) return optional<expr>{v};
+			if (ex.sameas(x)) return optional<expr>{v};
 			return optional<expr>{};
 			});
 }
@@ -31,7 +31,7 @@ expr substitute(const expr &e, const subst &st) {
 expr substitute(const expr &e, const std::vector<subst> &st) {
 	return e.map([st](const expr &ex) {
 			for(auto &s : st)
-				if (ex==s.x) return optional<expr>{s.v};
+				if (ex.sameas(s.x)) return optional<expr>{s.v};
 			return optional<expr>{};
 			});
 };

@@ -153,7 +153,6 @@ expr exp(const expr &e) {
 }
 
 
-/*
 template<typename T>
 struct condopinfo : public opinfo {
 	condopinfo() : opinfo(3,"?",false,false,15) {}
@@ -162,7 +161,6 @@ struct condopinfo : public opinfo {
 		return (MYany_cast<T>(x1)<0) ? MYany_cast<T>(x2) : MYany_cast<T>(x3);
 	}
 };
-*/
 
 /*
 template<typename T>
@@ -184,9 +182,9 @@ struct switchopinfo : public opinfo {
 	}
 };
 
-//const op condop = toptr<condopinfo<scalarreal>>();
 const op switchop = toptr<switchopinfo<scalarreal>>();
 */
+const op condop = toptr<condopinfo<scalarreal>>();
 
 template<typename T>
 struct heavisideinfo : public opinfo {
@@ -224,13 +222,17 @@ const op diracop = toptr<diracinfo<scalarreal>>();
 const op absop = toptr<absinfo<scalarreal>>();
 
 template<typename E1, typename E2, typename E3>
-expr cond(E1 &&condition, E2 &&negexp, E3 &&posexp) {
+expr ifthenelse(E1 &&condition, E2 &&negexp, E3 &&posexp) {
 	/*
 	return {switchop,std::forward<E1>(condition),
 		std::forward<E2>(negexp), scalar(0), std::forward<E3>(posexp)};
 		*/
+	/*
 	return posexp*expr{heavisideop,condition}
 			+ negexp*expr{heavisideleftop,-1*condition};
+			*/
+	return {condop,std::forward<E1>(condition),
+		std::forward<E2>(negexp), std::forward<E3>(posexp)};
 }
 
 expr abs(const expr &e) {

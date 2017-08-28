@@ -156,7 +156,7 @@ class gentree {
 			}
 		}
 
-		// F should map expr -> optional<expr>
+		// F should map gentree -> optional<gentree>
 		// (if fn returns no value, then use existing (sub)tree)
 		template<typename F>
 		gentree map(F fn) const {
@@ -211,7 +211,7 @@ class gentree {
 		}
 
 		// belong here or need a different fold?
-		bool operator==(const gentree &t) const {
+		bool sameas(const gentree &t) const {
 			if (!(isleaf()==t.isleaf())) return false;
 			if (isleaf()) 
 				return boost::get<leafT>(*root)==boost::get<leafT>(*t.root);
@@ -221,15 +221,17 @@ class gentree {
 			auto ch = children(), tch = t.children();
 			if (ch.size() != tch.size()) return false;
 			for(int i=0;i<ch.size();i++)
-				if (!(ch[i]==tch[i])) return false;
+				if (!(ch[i].sameas(tch[i]))) return false;
 			return true;
 		}
 
+		/*
 		bool operator!=(const gentree &t) const {
 			return !(*this==t);
 		}
+		*/
 
-		bool sametree(const gentree &t) const {
+		bool sameptr(const gentree &t) const {
 			return t.root == root;
 		}
 
@@ -240,6 +242,10 @@ class gentree {
 		const std::vector<gentree> &children() const {
 			const nodeT &n = boost::get<nodeT>(*root);
 			return n.ch;
+		}
+
+		std::size_t ptrhash() const {
+			return std::hash<std::shared_ptr<treenodeT>>{}(root);
 		}
 };
 #endif

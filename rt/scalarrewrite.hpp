@@ -57,7 +57,7 @@ struct sortchildren : public rewriterule {
 	int typeorder(const expr &e) const {
 		// TODO: use map/unordered_map
 		if (isconst(e)) return 0;
-		int add = (isconstexpr(e,vars) ? 0 : 9);
+		int add = (isconstexpr(e,vars) ? 0 : 11);
 		if (e.isleaf()) return 1+add;
 		auto &op = e.asnode();
 		if (op==plusop || op==pluschain) return 2+add;
@@ -65,10 +65,11 @@ struct sortchildren : public rewriterule {
 		if (op==powerop) return 4+add;
 		if (op==logop) return 5+add;
 		//if (op==switchop) return 6+add;
-		if (op==absop) return 6+add;
-		if (op==derivop) return 7+add;
-		if (op==evalatop) return 8+add;
-		return 9+add;
+		if (op==condop) return 7+add;
+		if (op==absop) return 8+add;
+		if (op==derivop) return 9+add;
+		if (op==evalatop) return 10+add;
+		return 11+add;
 	}
 
 	int secondordering(const expr &e1, const expr &e2) const {
@@ -315,6 +316,28 @@ bool isodd(const expr &e) {
 	return true;
 }
 
+struct simpcond : public rewriterule {
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,condop)) return {};
+		auto rngset = rangeprop(e.children()[0]);
+		bool hasless=false, hasgreq=false;
+		for(auto &rng : rngset.x) {
+			if (rng.first<0) {
+				hasless=true;
+				if (hasgreq) break;
+			}
+			if (rng.second>=0) {
+				hasgreq=true;
+				if (hasless) break;
+			}
+		}
+		if (!hasgreq) return optional<expr>{in_place,e.children()[1]};
+		if (!hasless) return optional<expr>{in_place,e.children()[2]};
+		return {};
+	}
+};
+
+
 /*
 struct normswitch : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
@@ -510,7 +533,8 @@ expr psum(const expr &p, const expr &n) {
 }
 
 // TODO:  will need to be separated out into general and specific to scalars
-std::vector<ruleptr> scalarruleset 
+//std::vector<ruleptr>
+ruleset scalarruleset 
 	{{toptr<trivialconsteval>(),
 	  toptr<scopeeval>(),
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
@@ -531,6 +555,7 @@ std::vector<ruleptr> scalarruleset
   toptr<collapsechain>(multiplieschain,true),
   toptr<constchaineval>(pluschain),
   toptr<constchaineval>(multiplieschain),
+  toptr<simpcond>(),
   /*
   toptr<normswitch>(),
   toptr<mergeswitch>(),
@@ -549,7 +574,9 @@ std::vector<ruleptr> scalarruleset
   SRR( -0 * E1_                          ,  scalar(0)                   ),
   SRR( pow(E1_,1)                       ,  P1_                             ),
   SRR( pow(1,E1_)                       ,  scalar(1)                   ),
-  SRR( pow(0,E1_)                       ,  scalar(0)                   ),
+  SRR( pow(0,E1_)                       ,  ifthenelse(P1_,
+				scalar(std::numeric_limits<scalarreal>::infinity()),
+				scalar(0))                                           ),
   SRR( pow(E1_,0)                       ,  scalar(1)                   ),
 
   SRR( E1_ + E1_                          ,  2*P1_                           ),
@@ -558,7 +585,12 @@ std::vector<ruleptr> scalarruleset
   SRR( E1_ * E1_                          ,  pow(P1_,2)                    ),
   SRR( E1_ * E1_ * E2_                    ,  pow(P1_,2)*P2_                ),
 
-  SRR( K1_*(E2_ + E3_)                    ,  P1_*P2_ + P1_*P3_               ),
+  SRR( log(pow(E1_,E2_))                  ,  P2_*log(P1_)                    ),
+  SRR( log(E1_*E2_)                       ,  log(P1_) + log(P2_)             ),
+
+  SRR( (W2_ + W3_)*E1_                    ,  P1_*P2_ + P1_*P3_               ),
+  SRR( (K2_ + W3_)*E1_                    ,  P1_*P2_ + P1_*P3_               ),
+  SRR( (W2_ + K3_)*E1_                    ,  P1_*P2_ + P1_*P3_               ),
 
   SRR( K1_*E2_ + K3_*E2_                  ,  (P1_+P3_) * P2_                 ),
   SRR( K1_*E2_ + K3_*E2_ + E4_            ,  (P1_+P3_) * P2_ + P4_           ),
@@ -579,10 +611,8 @@ std::vector<ruleptr> scalarruleset
   SRR( pow(W1_*E2_,E3_)                   ,  pow(P1_,P3_)*pow(P2_,P3_)       ),
   SRR( pow(K1_,E3_)*pow(K2_,E3_)          ,  pow(P1_*P2_,P3_)                ),
 
-  SRR( log(pow(E1_,E2_))                  ,  P2_*log(P1_)                    ),
-  SRR( log(E1_*E2_)                       ,  log(P1_) + log(P2_)             ),
 
-  SRR( log(cond(E1_,E2_,E3_))             ,  cond(P1_,log(P2_),log(P3_))     ),
+  SRR( log(ifthenelse(E1_,E2_,E3_))    ,  ifthenelse(P1_,log(P2_),log(P3_))  ),
 
   SRR( abs(E1_)                           ,  P1_ ,
    [](const exprmap &m) { return isnonneg(m.at(1)); } ),
@@ -623,17 +653,28 @@ std::vector<ruleptr> scalarruleset
   toptr<bigopexpand<scalarreal>>(3,sumop,pluschain,0),
   toptr<bigopexpand<scalarreal>>(3,prodop,multiplieschain,1),
 
+  SRR( sum(V2_,V2_,E3_,E4_)      , (P4_+1-P3_)*(P4_+P3_)/2                   ),
+  SRR( sum((V2_+E1_),V2_,E3_,E4_) , (P4_+1-P3_)*(P4_+P3_+2*P1_)/2              ,
+	  [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); } ),
+
+  /*
+  SRR( sum(pow(V2_,2),V2_,E3_,E4_)  
+	  , scalarreal{1,6}*(P4_-P3_+1) + scalarreal{1,2}*(pow(P4_,2)-pow(P3_-1,2))
+	  		+ scalarreal{1,3}*(pow(P4_,3)-pow(P3_-1,3))                    ),
+  SRR( sum(pow(V2_+E1_,2),V2_,E3_,E4_)  
+	  , scalarreal{1,6}*(P4_-P3_+1) + scalarreal{1,2}*(pow(P4_,2)-pow(P3_-1,2))
+	  		+ scalarreal{1,3}*(pow(P4_,3)-pow(P3_-1,3))
+			+ pow(P1_,2)*(P4_-P3_) + P1_*(pow(P4_,2)-pow(P3_,2)           ),
+	  [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); } ),
+	  */
+
   // Faulhaber's formula
   SRR( sum(pow(V1_,E2_),V1_,E3_,E4_)      ,
 	//	 			(B(P2_+1,P4_+1) - B(P2_+1,P3_+1))/(P2_+1) ,
 		(psum(P2_,P4_) - psum(P2_,P3_-1)),
-  	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1))); }    ),
-  SRR( sum(V2_,V2_,E3_,E4_)      ,
-		(psum(scalar(1),P4_) - psum(scalar(1),P3_-1))    ),
+  	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1))); }   ),
 
   toptr<consteval>(),
-
-
 
 	 }};
 

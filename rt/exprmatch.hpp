@@ -146,7 +146,7 @@ opexprmap match(const expr &e, const expr &pat) {
 		auto patleaf = pat.asleaf();
 		if (patleaf.type()==typeid(matchleaf))
 			return MYany_cast<matchleaf>(patleaf)->match(e);
-		if (e==pat) return opexprmap{in_place};
+		if (e.sameas(pat)) return opexprmap{in_place};
 		return {};
 	} else {
 		std::shared_ptr<matchop> mop

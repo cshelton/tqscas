@@ -1,9 +1,10 @@
 Current (miopic) list:
 	* Redo der and int to be operators with rewrite rules and (numeric) evals
 	- Add specialization of rewrites by list of vars
+	- Make constants e and pi remain as such (instead of converting to double when eval)
 
 Longer / Maybe:
-	- fix conversion of constant to expr (??)
+	- fix conversion of constant to expr (??) -- how to have exprs of exprs then?
 	- Add ability of ops to pertain only to a particular type (for real)
 	- Add "domain" of exprs
 	- Add comparison operators (maybe redo switches in that case?)
@@ -11,10 +12,10 @@ Longer / Maybe:
 	- Add matrices
 	* Add ranges / sets ? (partially done)
 	- Add trig functions (or just use complex numbers?)
-	- Use boost::rational<???> instead of double for scalars (convert double => rational?)
 
 Done:
 	- Add "switch" rewrites to scalarrewrite.hpp
 	- Add "local scope"
 	- add abs as base function 
 	- convert "switch" to multiplication by step-indicator fn
+	- Use boost::rational<???> instead of double for scalars (convert double => rational?)

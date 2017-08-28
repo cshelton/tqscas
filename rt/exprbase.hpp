@@ -116,6 +116,21 @@ namespace std {
 			return std::hash<std::shared_ptr<varinfo>>{}(s);
 		}
 	};
+	template<> struct hash<expr> {
+		typedef expr argument_type;
+		typedef std::size_t result_type;
+		result_type operator()(argument_type const &s) const {
+			return s.ptrhash();
+		}
+	};
+
+	bool operator==(const expr &e1, const expr &e2) {
+		return e1.sameptr(e2);
+	}
+	bool operator!=(const expr &e1, const expr &e2) {
+		return !(e1==e2);
+	}
+
 }
 
 

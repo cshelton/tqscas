@@ -14,7 +14,83 @@ struct rewriterule {
 	virtual optional<expr> apply(const expr &e) const { return {}; }
 };
 
+
 using ruleptr = std::shared_ptr<rewriterule>;
+
+struct ruleset {
+
+	ruleset(std::initializer_list<ruleptr> args) : rules(args) {}
+
+	template<typename... T>
+	ruleset(T &&...args) : rules(std::forward<T>(args)...) {}
+
+	std::vector<ruleptr> rules;
+
+	template<typename T>
+	optional<expr> runrulesto(const expr &e, int n, T &cache) const {
+		auto loc = cache.find(e);
+		if (loc!=cache.end() && loc->second>=n) return {};
+		if (n==0) return {};
+		optional<expr> ret{};
+		bool change=true;
+		while(change) {
+			change = false;
+			auto newe = runrulesto(ret.value_or(e),n-1,cache);
+			if (newe) { change=true; ret = newe; }
+			if (!ret.value_or(e).isleaf()) {
+				auto &ch = ret.value_or(e).children();
+				std::vector<expr> newch;
+				for(int i=0;i<ch.size();i++) {
+					auto nc = runrulesto(ch[i],n,cache);
+					if (nc) {
+						if (newch.empty()) {
+							newch.reserve(ch.size());
+							for(int j=0;j<i;j++)
+								newch.emplace_back(ch[j]);
+						}
+						newch.emplace_back(*nc);
+					} else if (!newch.empty()) newch.emplace_back(ch[i]);
+				}
+				if (!newch.empty()) {
+					ret = optional<expr>{in_place,ret.value_or(e).asnode(),newch};
+					change = true;
+				}
+			}
+			newe = rules[n-1]->apply(ret.value_or(e));
+			if (newe) {
+#ifdef SHOWRULES
+				std::cout << "===== (" << n-1 << ")" << std::endl;
+				std::cout << "changed " << std::endl;
+				std::cout << draw(ret.value_or(e)) << " to " << std::endl;
+				std::cout << draw(*newe);
+				std::cout << "-----------" << std::endl;
+#endif
+				change=true;
+				ret = newe;
+			}
+		}
+		if (!ret) {
+			if (loc!=cache.end()) loc->second = n;
+			else cache.emplace(e,n);
+		}
+		return ret;
+	}
+
+	expr rewrite(const expr &e) const {
+	// TODO:  add cache removal (dead expr and old ones to keep memory low)
+	// (note that expr needs to be made into weak_ptr -- breaks
+	//  abstraction -- and then multiple ptrs could be to the
+	//  same location, so the map becomes a multimap with checking)
+	// (currently moved to be inside rewrite which solves many problems)
+		//mutable
+		std::unordered_map<expr,int> cache;
+		return runrulesto(e,rules.size(),cache).value_or(e);
+	}
+};
+
+
+/*
+
 
 optional<expr> runrules(const expr &e, const std::vector<ruleptr> &rules) {
 	bool done=false;
@@ -38,6 +114,7 @@ optional<expr> runrules(const expr &e, const std::vector<ruleptr> &rules) {
 	}
 	return rete;
 }
+
 
 optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules);
 
@@ -80,10 +157,50 @@ optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules) {
 	}
 }
 
+template<typename F>
+optional<expr> runcomplete(const expr &e, const std::vector<ruleptr> &rules, F f) {
+	optional<expr> ret = f(e,rules);
+	if (!ret) return ret;
+	while(1) {
+		auto newe = f(*ret,rules);
+		if (!newe) return ret;
+		ret = newe;
+	}
+}
+
+optional<expr> runallrules(const expr &e, const std::vector<ruleptr> &rules) {
+	return runcomplete(e,rules,runrules);
+}
+
+optional<expr> runtree(const expr &e, const std::vector<ruleptr> &rules) {
+	auto ret = runallrules(e,rules);
+	if (!ret) return {};
+	return optional<expr>{in_place,
+			ret->map([&rules](const expr &ex) { return runtree(ex,rules); })};
+}
+
+optional<expr> runalltree(const expr &e, const std::vector<ruleptr> &rules) {
+	return runcomplete(e,rules,runtree);
+}
+*/
+
 // perhaps should be written in terms of e.map???
+/*
 expr rewrite(const expr &e, const std::vector<ruleptr> &rules) {
 	return rewritemaybe(e,rules).value_or(e);
 }
+*/
+/*
+ // does not work b/c rules not rerun on changed children
+expr rewrite(const expr &e, const std::vector<ruleptr> &rules) {
+	return e.map([&rules](const expr &ex) { return runallrules(ex,rules); });
+}
+*/
+/*
+expr rewrite(const expr &e, const std::vector<ruleptr> &rules) {
+	return e.map([&rules](const expr &ex) { return runalltree(ex,rules); });
+}
+*/
 
 struct optochain : public rewriterule {
 	std::shared_ptr<opchain> cop;

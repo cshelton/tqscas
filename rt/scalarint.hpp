@@ -39,7 +39,7 @@ struct subpattern {
 					return sube->second==e;
 				} else return false;
 			}
-			return e==m;
+			return e.sameas(m);
 		}
 		if (m.asnode() != e.asnode()) return false;
 		if (m.children().size() != e.children.size()) return false;
@@ -79,7 +79,7 @@ expr tableintegrate(const expr &e,const expr &x) {
 		newch.reserve(e.children().size());
 		for(auto &c : e.children()) {
 			expr ce = tableintegrate(c,x);
-			if (ce==noexpr) return noexpr;
+			if (ce.sameas(noexpr)) return noexpr;
 			newch.emplace_back(std::move(ce));
 		}
 		return {pluschain,newch};
