@@ -92,6 +92,8 @@ struct opinfo {
 			v.emplace_back(::eval(e));
 		return opeval(v);
 	}
+
+	virtual bool caneval() const { return true; }
 };
 
 struct varinfo {
@@ -399,13 +401,8 @@ struct opchain : public opinfo {
 struct scopeinfo : public opinfo {
 	using opinfo::opinfo;
 
-	virtual bool caneval(const std::vector<expr> &x) const {
-		return false;
-	}
-
-	virtual any eval(const std::vector<expr> &x) const {
-		return {};
-	}
+	virtual bool caneval(const std::vector<expr> &x) const { return false; }
+	virtual any eval(const std::vector<expr> &x) const { return {}; }
 
 };
 

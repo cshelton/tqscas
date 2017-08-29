@@ -298,6 +298,7 @@ ruleptr SR(E1 &&pattern, E2 &&newexp, F condition) {
 struct consteval : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
+		if (!e.asnode()->caneval()) return {};
 		if (isconstexpr(e)) return optional<expr>{in_place,
 						newconst(e.asnode()->eval(e.children()))};
 		return {};

@@ -57,7 +57,7 @@ struct sortchildren : public rewriterule {
 	int typeorder(const expr &e) const {
 		// TODO: use map/unordered_map
 		if (isconst(e)) return 0;
-		int add = (isconstexpr(e,vars) ? 0 : 11);
+		int add = (isconstexpr(e,vars) ? 0 : 13);
 		if (e.isleaf()) return 1+add;
 		auto &op = e.asnode();
 		if (op==plusop || op==pluschain) return 2+add;
@@ -66,10 +66,12 @@ struct sortchildren : public rewriterule {
 		if (op==logop) return 5+add;
 		//if (op==switchop) return 6+add;
 		if (op==condop) return 7+add;
-		if (op==absop) return 8+add;
-		if (op==derivop) return 9+add;
-		if (op==evalatop) return 10+add;
-		return 11+add;
+		if (op==condeqop) return 8+add;
+		if (op==absop) return 9+add;
+		if (op==derivop) return 10+add;
+		if (op==integrateop) return 11+add;
+		if (op==evalatop) return 12+add;
+		return 13+add;
 	}
 
 	int secondordering(const expr &e1, const expr &e2) const {
@@ -266,6 +268,9 @@ scalarset<scalarreal> rangeprop(const expr &e) {
 					std::numeric_limits<scalarreal>::infinity()};
 }
 
+
+// perhaps these should do their own simplification first...
+
 bool ispos(const expr &e) {
 	auto rs = rangeprop(e);
 	if (rs.x.empty()) return false; //???
@@ -318,22 +323,39 @@ bool isodd(const expr &e) {
 
 struct simpcond : public rewriterule {
 	virtual optional<expr> apply(const expr &e) const {
-		if (!isop(e,condop)) return {};
+		if (!isop(e,condop) && !isop(e,condeqop)) return {};
 		auto rngset = rangeprop(e.children()[0]);
-		bool hasless=false, hasgreq=false;
-		for(auto &rng : rngset.x) {
-			if (rng.first<0) {
-				hasless=true;
-				if (hasgreq) break;
+		if (isop(e,condop)) {
+			bool hasless=false, hasgreq=false;
+			for(auto &rng : rngset.x) {
+				if (rng.first<0) {
+					hasless=true;
+					if (hasgreq) break;
+				}
+				if (rng.second>=0) {
+					hasgreq=true;
+					if (hasless) break;
+				}
 			}
-			if (rng.second>=0) {
-				hasgreq=true;
-				if (hasless) break;
+			if (!hasgreq) return optional<expr>{in_place,e.children()[1]};
+			if (!hasless) return optional<expr>{in_place,e.children()[2]};
+			return {};
+		} else {
+			bool hasnotzero=false, haszero=false;
+			for(auto &rng : rngset.x) {
+				if (rng.first!=0 || rng.second!=0) {
+					hasnotzero=true;
+					if (haszero) break;
+				}
+				if (rng.first<=0 && rng.second>=0) {
+					haszero=true;
+					if (hasnotzero) break;
+				}
 			}
+			if (!hasnotzero) return optional<expr>{in_place,e.children()[1]};
+			if (!haszero) return optional<expr>{in_place,e.children()[2]};
+			return {};
 		}
-		if (!hasgreq) return optional<expr>{in_place,e.children()[1]};
-		if (!hasless) return optional<expr>{in_place,e.children()[2]};
-		return {};
 	}
 };
 
@@ -498,6 +520,69 @@ struct bigopexpand : public rewriterule {
 	}
 };
 
+expr x_ = newvar<scalarreal>("x_");
+expr notx_{makematchleaf<matchconstwrt>(vset{{getvar(x_)}})};
+expr k1_ = L(1,notx_);
+expr k2_ = L(2,notx_);
+expr k3_ = L(3,notx_);
+expr k4_ = L(4,notx_);
+expr k5_ = L(5,notx_);
+expr k6_ = L(6,notx_);
+expr k7_ = L(7,notx_);
+expr k8_ = L(8,notx_);
+expr k9_ = L(9,notx_);
+
+struct tableintegrate : public rewriterule {
+	std::vector<std::pair<expr,expr>> antiderivs;
+
+	tableintegrate(std::vector<std::pair<expr,expr>> ader)
+			: antiderivs(std::move(ader)) {}
+
+	virtual optional<expr> apply(const expr &e) const {
+		if (!isop(e,integrateop)) return {};
+		auto &ch = e.children();
+		expr newint = substitute(ch[1],ch[0],x_);
+		for(auto &ad : antiderivs) {
+			auto res = match(newint,ad.first);
+			if (res) {
+				expr ader = substitute(ad.second,*res);
+				expr ret = substitute(ader,x_,ch[3])
+					- substitute(ader,x_,ch[2]);
+				return optional<expr>{in_place,std::move(ret)};
+			}
+		}
+		return {};
+	}
+};
+
+template<typename E1, typename E2>
+std::pair<expr,expr> ADR(E1 &&e, E2 &&ad) {
+	return std::make_pair(chainpatternmod(std::forward<E1>(e)),
+			std::forward<E2>(ad));
+}
+
+std::vector<std::pair<expr,expr>> stdantiderivs
+	{{
+		 ADR(  k1_,              
+	            P1_*x_   ),
+
+		 ADR(  x_,
+		       x_*x_/2   ),
+
+		 ADR(  pow(x_,k1_),
+			  ifeqthenelse(P1_+1,log(abs(x_)),pow(x_,P1_+1)/(P1_+1))   ),
+
+		 ADR(  pow(x_ + k2_,k3_),
+			  ifeqthenelse(P3_+1, log(abs(x_+P2_)),
+							pow(x_+P2_,P3_+1)/(P3_+1))),
+
+		 ADR(  pow(k1_*x_ + k2_,k3_),
+			  ifeqthenelse(P1_,pow(P2_,P3_)*x_,
+				  ifeqthenelse(P3_+1, log(abs(P1_*x_+P2_))/P1_,
+					  			pow(P1_*x_+P2_,P3_+1)/(P3_+1)/P1_))),
+
+	 }};
+
 // all of the next few "helpers" should perhaps be moved elsewhere
 // they may also need to be made more efficient and perhaps given
 // their own algebraic symbols to be reasonable about directly
@@ -639,7 +724,32 @@ ruleset scalarruleset
 		                          deriv(P1_,P2_,P3_) / evalat(P1_,P2_,P3_) ),
 
   SRR( deriv(expr{heavisideop,E1_},V2_,V3_),
-				 evalat(expr{diracop,E1_},V2_,V3_)*deriv(E1_,V2_,V3_) ),
+				 evalat(expr{diracop,P1_},P2_,P3_)*deriv(P1_,P2_,P3_) ),
+
+  SRR( deriv(ifthenelse(E1_,E2_,E3_),V4_,V5_)   ,
+		  evalat(expr{diracop,P1_},P4_,P5_)*deriv(P1_,P4_,P5_)*(E2_-E3_)
+		  + ifthenelse(P1_,deriv(P2_,P4_,P5_),deriv(P3_,P4_,P5_))           ),
+
+  SRR( deriv(integrate(E1_,E2_,E3_,E4_),E5_,E6_)  ,
+		  integrate(deriv(P1_,P5_,P6_),P2_,
+					evalat(P3_,P5_,P6_),evalat(P4_,P5_,P6_))
+		  + deriv(P4_,P5_,P6_)*evalat(evalat(P1_,P2_,P4_),P5_,P6_)
+		  - deriv(P3_,P5_,P6_)*evalat(evalat(P1_,P2_,P3_),P5_,P6_)          ),
+
+  SRR( integrate(E1_+E2_,E3_,E4_,E5_), integrate(P1_,P3_,P4_,P5_) + integrate(P2_,P3_,P4_,P5_) ),
+
+  SRR( integrate(E1_*E2_,E3_,E4_,E5_), P1_ * integrate(P2_,P3_,P4_,P5_) ,
+  		[](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(3))); } ),
+
+  SRR( integrate(E1_*E2_,E3_,E4_,E5_), integrate(P1_,P3_,P4_,P5_) * P2_ ,
+  		[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); } ),
+
+  toptr<tableintegrate>(stdantiderivs),
+
+  SRR( sum(E1_,V2_,E3_,E4_)               , scalar(0),
+		  [](const exprmap &m) { return isneg(E4_-E3_); } ),
+  SRR( prod(E1_,V2_,E3_,E4_)               , scalar(1),
+		  [](const exprmap &m) { return isneg(E4_-E3_); } ),
 
   // perhaps need "max(0,P4_-P3_+1)"??
   SRR( sum(E1_,V2_,E3_,E4_)               , P1_*(P4_-P3_+1),
@@ -653,26 +763,29 @@ ruleset scalarruleset
   toptr<bigopexpand<scalarreal>>(3,sumop,pluschain,0),
   toptr<bigopexpand<scalarreal>>(3,prodop,multiplieschain,1),
 
-  SRR( sum(V2_,V2_,E3_,E4_)      , (P4_+1-P3_)*(P4_+P3_)/2                   ),
-  SRR( sum((V2_+E1_),V2_,E3_,E4_) , (P4_+1-P3_)*(P4_+P3_+2*P1_)/2              ,
+  SRR( sum(V2_,V2_,E3_,E4_)      , ifthenelse(P4_-P3_,scalar(0),(P4_+1-P3_)*(P4_+P3_)/2)                  ),
+  SRR( sum((V2_+E1_),V2_,E3_,E4_) , ifthenelse(P4_-P3_,scalar(0),(P4_+1-P3_)*(P4_+P3_+2*P1_)/2)              ,
 	  [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); } ),
 
-  /*
   SRR( sum(pow(V2_,2),V2_,E3_,E4_)  
-	  , scalarreal{1,6}*(P4_-P3_+1) + scalarreal{1,2}*(pow(P4_,2)-pow(P3_-1,2))
-	  		+ scalarreal{1,3}*(pow(P4_,3)-pow(P3_-1,3))                    ),
+	  , ifthenelse(P4_-P3_,scalar(0),scalarreal{1,6}*(P4_-P3_+1) + scalarreal{1,2}*(pow(P4_,2)-pow(P3_-1,2))
+	  		+ scalarreal{1,3}*(pow(P4_,3)-pow(P3_-1,3)))                   ),
   SRR( sum(pow(V2_+E1_,2),V2_,E3_,E4_)  
-	  , scalarreal{1,6}*(P4_-P3_+1) + scalarreal{1,2}*(pow(P4_,2)-pow(P3_-1,2))
+	  , ifthenelse(P4_-P3_,scalar(0),scalarreal{1,6}*(P4_-P3_+1) + scalarreal{1,2}*(pow(P4_,2)-pow(P3_-1,2))
 	  		+ scalarreal{1,3}*(pow(P4_,3)-pow(P3_-1,3))
-			+ pow(P1_,2)*(P4_-P3_) + P1_*(pow(P4_,2)-pow(P3_,2)           ),
+			+ pow(P1_,2)*(P4_-P3_) + P1_*(pow(P4_,2)-pow(P3_,2))          ),
 	  [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); } ),
-	  */
 
   // Faulhaber's formula
   SRR( sum(pow(V1_,E2_),V1_,E3_,E4_)      ,
 	//	 			(B(P2_+1,P4_+1) - B(P2_+1,P3_+1))/(P2_+1) ,
-		(psum(P2_,P4_) - psum(P2_,P3_-1)),
+		ifthenelse(P4_-P3_,scalar(0),psum(P2_,P4_) - psum(P2_,P3_-1)),
   	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1))); }   ),
+  SRR( sum(pow((V1_+E5_),E2_),V1_,E3_,E4_)      ,
+	//	 			(B(P2_+1,P4_+1) - B(P2_+1,P3_+1))/(P2_+1) ,
+		ifthenelse(P4_-P3_,scalar(0),psum(P2_,P4_+P5_) - psum(P2_,P3_+P5_-1)),
+  	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1)))
+				&& isconstexpr(m.at(5),getvar(m.at(1))); }   ),
 
   toptr<consteval>(),
 

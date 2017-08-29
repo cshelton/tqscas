@@ -162,6 +162,15 @@ struct condopinfo : public opinfo {
 	}
 };
 
+template<typename T>
+struct condeqopinfo : public opinfo {
+	condeqopinfo() : opinfo(3,"?=",false,false,15) {}
+	// three children: child1 == 0 ? child2 : child3
+	virtual any opeval(const any &x1, const any &x2, const any &x3) const {
+		return (MYany_cast<T>(x1)==0) ? MYany_cast<T>(x2) : MYany_cast<T>(x3);
+	}
+};
+
 /*
 template<typename T>
 struct switchopinfo : public opinfo {
@@ -185,6 +194,7 @@ struct switchopinfo : public opinfo {
 const op switchop = toptr<switchopinfo<scalarreal>>();
 */
 const op condop = toptr<condopinfo<scalarreal>>();
+const op condeqop = toptr<condeqopinfo<scalarreal>>();
 
 template<typename T>
 struct heavisideinfo : public opinfo {
@@ -221,6 +231,24 @@ const op heavisideleftop = toptr<heavisideinfo<scalarreal>>(0);
 const op diracop = toptr<diracinfo<scalarreal>>();
 const op absop = toptr<absinfo<scalarreal>>();
 
+template<typename T>
+struct toexprimpl {
+	template<typename TT>
+	expr exec(TT &&v) const { return scalar(std::forward<TT>(v)); }
+};
+
+template<>
+struct toexprimpl<expr> {
+	expr exec(const expr &e) const { return e; }
+};
+
+template<typename T>
+expr toexpr(T &&v) {
+	toexprimpl<typename std::remove_cv<
+		typename std::remove_reference<T>::type>::type> impl;
+    return impl.exec(std::forward<T>(v));
+}    
+
 template<typename E1, typename E2, typename E3>
 expr ifthenelse(E1 &&condition, E2 &&negexp, E3 &&posexp) {
 	/*
@@ -231,8 +259,14 @@ expr ifthenelse(E1 &&condition, E2 &&negexp, E3 &&posexp) {
 	return posexp*expr{heavisideop,condition}
 			+ negexp*expr{heavisideleftop,-1*condition};
 			*/
-	return {condop,std::forward<E1>(condition),
-		std::forward<E2>(negexp), std::forward<E3>(posexp)};
+	return {condop,toexpr(std::forward<E1>(condition)),
+		toexpr(std::forward<E2>(negexp)), toexpr(std::forward<E3>(posexp))};
+}
+
+template<typename E1, typename E2, typename E3>
+expr ifeqthenelse(E1 &&condition, E2 &&negexp, E3 &&posexp) {
+	return {condeqop,toexpr(std::forward<E1>(condition)),
+		toexpr(std::forward<E2>(negexp)), toexpr(std::forward<E3>(posexp))};
 }
 
 expr abs(const expr &e) {
@@ -316,36 +350,30 @@ struct bigopinfo : public scopeinfo {
 const op sumop = toptr<bigopinfo<scalarreal>>(plusop,0,"sum");
 const op prodop = toptr<bigopinfo<scalarreal>>(multipliesop,1,"prod");
 
-expr sum(const expr &e, const expr &x, const expr &x0, const expr &x1) {
-	return {sumop,x,e,x0,x1};
-}
 template<typename T>
-expr sum(const expr &e, const expr &x, T x0, const expr &x1) {
-	return {sumop,x,e,scalar(x0),x1};
-}
-template<typename T>
-expr sum(const expr &e, const expr &x, const expr &x0, T x1) {
-	return {sumop,x,e,x0,scalar(x1)};
-}
-template<typename T0, typename T1>
-expr sum(const expr &e, const expr &x, T0 x0, T1 x1) {
-	return {sumop,x,e,scalar(x0),scalar(x1)};
+struct integrateinfo : public scopeinfo {
+	integrateinfo() : scopeinfo(4,"int",false,false,5) {}
+
+	virtual bool caneval() const { return false; }
+};
+
+const op integrateop  = toptr<integrateinfo<scalarreal>>();
+
+template<typename E1, typename E2, typename E3>
+expr integrate(E1 &&e, const expr &x, E2 &&x0, E3 &&x1) {
+	return {integrateop,x,toexpr(std::forward<E1>(e)),toexpr(std::forward<E2>(x0)),toexpr(std::forward<E3>(x1))};
 }
 
-expr prod(const expr &e, const expr &x, const expr &x0, const expr &x1) {
-	return {prodop,x,e,x0,x1};
+template<typename E1,typename E2, typename E3, typename E4>
+expr sum(E1 &&e, E2 &&x, E3 &&x0, E4 &&x1) {
+	return {sumop,toexpr(std::forward<E1>(x)),toexpr(std::forward<E2>(e)),
+		toexpr(std::forward<E3>(x0)),toexpr(std::forward<E4>(x1))};
 }
-template<typename T>
-expr prod(const expr &e, const expr &x, T x0, const expr &x1) {
-	return {prodop,x,e,scalar(x0),x1};
-}
-template<typename T>
-expr prod(const expr &e, const expr &x, const expr &x0, T x1) {
-	return {prodop,x,e,x0,scalar(x1)};
-}
-template<typename T0, typename T1>
-expr prod(const expr &e, const expr &x, T0 x0, T1 x1) {
-	return {prodop,x,e,scalar(x0),scalar(x1)};
+
+template<typename E1,typename E2, typename E3, typename E4>
+expr prod(E1 &&e, E2 &&x, E3 &&x0, E4 &&x1) {
+	return {prodop,toexpr(std::forward<E1>(x)),toexpr(std::forward<E2>(e)),
+		toexpr(std::forward<E3>(x0)),toexpr(std::forward<E4>(x1))};
 }
 
 #endif
