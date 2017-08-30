@@ -10,21 +10,60 @@
 //#define SHOWRULES
 //#define SHOWCHANGES
 
+struct rewriterule;
+
+using ruleptr = std::shared_ptr<rewriterule>;
+
+
 struct rewriterule {
 	virtual optional<expr> apply(const expr &e) const { return {}; }
+	virtual void setvars(const vset &v) {}
+	virtual ruleptr clone() const { return std::make_shared<rewriterule>(*this); }
 };
 
 
-using ruleptr = std::shared_ptr<rewriterule>;
 
 struct ruleset {
 
 	ruleset(std::initializer_list<ruleptr> args) : rules(args) {}
 
+	ruleset(ruleset &&rs) : rules(std::move(rs.rules)) {
+	}
+
+	ruleset(const ruleset &rs) {
+		rules.reserve(rs.rules.size());
+		for(auto &r : rs.rules)
+			rules.emplace_back(r->clone());
+	}
+	ruleset(ruleset &rs) {
+		rules.reserve(rs.rules.size());
+		for(auto &r : rs.rules)
+			rules.emplace_back(r->clone());
+	}
+
 	template<typename... T>
 	ruleset(T &&...args) : rules(std::forward<T>(args)...) {}
 
 	std::vector<ruleptr> rules;
+
+	ruleset &operator+=(const ruleset &rs) {
+		for(auto &r : rs.rules)
+			rules.emplace_back(r->clone());
+		return *this;
+	}
+
+	ruleset operator+(const ruleset &rs) const {
+		ruleset ret(*this);
+		return ret+=rs;
+	}
+
+	void setvar(const var &v) {
+		setvars(vset{{v}});
+	}
+
+	void setvars(const vset &vars) {
+		for(auto &r : rules) r->setvars(vars);
+	}
 
 	template<typename T>
 	optional<expr> runrulesto(const expr &e, int n, T &cache) const {
@@ -207,6 +246,8 @@ struct optochain : public rewriterule {
 
 	optochain(std::shared_ptr<opchain> chainop) : cop(chainop) {}
 
+	virtual ruleptr clone() const { return std::make_shared<optochain>(*this); }
+
 	virtual optional<expr> apply(const expr &e) const {
 		if (isop(e,cop->baseop))
 			return optional<expr>{in_place,cop,e.children()};
@@ -220,6 +261,8 @@ struct collapsechain : public rewriterule {
 
 	collapsechain(op chainop, bool isassoc=true)
 		: cop(chainop), assoc(isassoc) {}
+
+	virtual ruleptr clone() const { return std::make_shared<collapsechain>(*this); }
 
 	virtual optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
@@ -257,6 +300,25 @@ struct matchrewrite : public rewriterule {
 	matchrewrite(E1 &&pattern, E2 &&newexp)
 			: search(std::forward<E1>(pattern)),
 			  replace(std::forward<E2>(newexp)) {}
+	
+	virtual ruleptr clone() const { return std::make_shared<matchrewrite>(*this); }
+
+	virtual void setvars(const vset &v) {
+		optional<expr> nsearch = search.mapmaybe([v](const expr &e) {
+				if (!e.isleaf() ||
+					e.asleaf().type()!=typeid(matchleaf)) return optional<expr>{};
+				auto ml = MYany_cast<matchleaf>(e.asleaf());
+				auto asconst = std::dynamic_pointer_cast<matchconstwrt>(ml);
+				if (asconst)
+					return optional<expr>{in_place,makematchleaf<matchconstwrt>(v)};
+				auto asnonconst = std::dynamic_pointer_cast<matchnonconstwrt>(ml);
+				if (asnonconst)
+					return optional<expr>{in_place,makematchleaf<matchnonconstwrt>(v)};
+				return optional<expr>{};
+			});
+		if (nsearch) search = *nsearch;
+	}
+
 
 	virtual optional<expr> apply(const expr &e) const {
 		auto m = match(e,search);
@@ -266,15 +328,16 @@ struct matchrewrite : public rewriterule {
 };
 
 template<typename F>
-struct matchrewritecond : public rewriterule {
-	expr search, replace;
+struct matchrewritecond : public matchrewrite {
 	F condition;
 
 	template<typename E1, typename E2>
 	matchrewritecond(E1 &&pattern, E2 &&newexp, F c)
-			: search(std::forward<E1>(pattern)),
-			  replace(std::forward<E2>(newexp)),
-    			  condition(std::move(c)) {}
+			: matchrewrite(std::forward<E1>(pattern),
+					std::forward<E2>(newexp)),
+				  condition(std::move(c)) {}
+
+	virtual ruleptr clone() const { return std::make_shared<matchrewritecond>(*this); }
 
 	virtual optional<expr> apply(const expr &e) const {
 		auto m = match(e,search);
@@ -296,6 +359,7 @@ ruleptr SR(E1 &&pattern, E2 &&newexp, F condition) {
 }
 
 struct consteval : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<consteval>(*this); }
 	virtual optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
 		if (!e.asnode()->caneval()) return {};
@@ -306,6 +370,7 @@ struct consteval : public rewriterule {
 };
 
 struct trivialconsteval : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<trivialconsteval>(*this); }
 	virtual optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
 		auto &ch = e.children();
@@ -320,6 +385,7 @@ struct trivialconsteval : public rewriterule {
 };
 
 struct constchaineval : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<constchaineval>(*this); }
 	std::shared_ptr<opchain> cop;
 
 	constchaineval(std::shared_ptr<opchain> chainop) : cop(chainop) {}
@@ -345,6 +411,7 @@ struct constchaineval : public rewriterule {
 
 
 struct scopeeval : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<scopeeval>(*this); }
 	virtual optional<expr> apply(const expr &e) const {
 		if (!isop<scopeinfo>(e)) return {};
 		auto se = std::dynamic_pointer_cast<scopeinfo>(e.asnode());

@@ -160,19 +160,19 @@ class gentree {
 		// (if fn returns no value, then use existing (sub)tree)
 		template<typename F>
 		gentree map(F fn) const {
-			return map1(fn).value_or(*this);
+			return mapmaybe(fn).value_or(*this);
 		}
 
 		/*
 		template<typename F>
-		optional<gentree> map1(F fn) const {
+		optional<gentree> mapmaybe(F fn) const {
 			auto newtree = fn(*this);
 			if (newtree) return newtree;
 			if (isleaf()) return {};
 			auto &ch = children();
 			std::vector<gentree> newch;
 			for(int i=0;i<ch.size();i++) {
-				auto nc = ch[i].map1(fn);
+				auto nc = ch[i].mapmaybe(fn);
 				if (nc) {
 					if (newch.empty()) {
 						newch.reserve(ch.size());
@@ -188,12 +188,12 @@ class gentree {
 		*/
 
 		template<typename F>
-		optional<gentree> map1(F fn) const {
+		optional<gentree> mapmaybe(F fn) const {
 			if (isleaf()) return fn(*this);
 			auto &ch = children();
 			std::vector<gentree> newch;
 			for(int i=0;i<ch.size();i++) {
-				auto nc = ch[i].map1(fn);
+				auto nc = ch[i].mapmaybe(fn);
 				if (nc) {
 					if (newch.empty()) {
 						newch.reserve(ch.size());

@@ -46,6 +46,7 @@ expr chainpatternmod(const expr &ex) {
 }
 
 struct sortchildren : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<sortchildren>(*this); }
 	optional<vset> vars;
 	std::vector<op> cops;
 
@@ -72,6 +73,10 @@ struct sortchildren : public rewriterule {
 		if (op==integrateop) return 11+add;
 		if (op==evalatop) return 12+add;
 		return 13+add;
+	}
+
+	virtual void setvars(const vset &v) {
+		vars = v;
 	}
 
 	int secondordering(const expr &e1, const expr &e2) const {
@@ -322,6 +327,7 @@ bool isodd(const expr &e) {
 }
 
 struct simpcond : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<simpcond>(*this); }
 	virtual optional<expr> apply(const expr &e) const {
 		if (!isop(e,condop) && !isop(e,condeqop)) return {};
 		auto rngset = rangeprop(e.children()[0]);
@@ -362,6 +368,7 @@ struct simpcond : public rewriterule {
 
 /*
 struct normswitch : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<normswitch>(*this); }
 	virtual optional<expr> apply(const expr &e) const {
 		if (!isop(e,switchop)) return {};
 		auto &c0 = e.children()[0];
@@ -385,6 +392,7 @@ struct normswitch : public rewriterule {
 };
 
 struct liftswitch : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<liftswitch>(*this); }
 	static expr replacech(const expr &e, int chi, const expr &ch) {
 		auto &ech = e.children();
 		std::vector<expr> newch;
@@ -413,6 +421,7 @@ struct liftswitch : public rewriterule {
 };
 
 struct squeezeswitch : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<squeezeswitch>(*this); }
 	virtual optional<expr> apply(expr &e) const {
 		if (!isop(e,switchop)) return {};
 		auto &ch = e.children();
@@ -436,6 +445,7 @@ struct squeezeswitch : public rewriterule {
 
 
 struct mergeswitch : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<mergeswitch>(*this); }
 	static bool ismergeable(const expr &e, const expr &te, bool checkte=true) {
 		if (!isop(e,switchop)) return false;
 		auto &ch = e.children();
@@ -499,6 +509,7 @@ ruleptr SRR(const expr &s, const expr &p, F &&f) {
 
 template<typename T>
 struct bigopexpand : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<bigopexpand>(*this); }
 	int nterms;
 	op bigop, chainop;
 	T id;
@@ -533,6 +544,7 @@ expr k8_ = L(8,notx_);
 expr k9_ = L(9,notx_);
 
 struct tableintegrate : public rewriterule {
+	virtual ruleptr clone() const { return std::make_shared<tableintegrate>(*this); }
 	std::vector<std::pair<expr,expr>> antiderivs;
 
 	tableintegrate(std::vector<std::pair<expr,expr>> ader)
@@ -569,6 +581,9 @@ std::vector<std::pair<expr,expr>> stdantiderivs
 		 ADR(  x_,
 		       x_*x_/2   ),
 
+		 // TODO:
+		 // when k1_<0 this doesn't work if the integral goes over the pole (@ x_=0)
+		 // similar problem with the other rational function antiderivatives below!
 		 ADR(  pow(x_,k1_),
 			  ifeqthenelse(P1_+1,log(abs(x_)),pow(x_,P1_+1)/(P1_+1))   ),
 
@@ -619,7 +634,8 @@ expr psum(const expr &p, const expr &n) {
 
 // TODO:  will need to be separated out into general and specific to scalars
 //std::vector<ruleptr>
-ruleset scalarruleset 
+
+ruleset basicscalarrules
 	{{toptr<trivialconsteval>(),
 	  toptr<scopeeval>(),
 	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
@@ -704,7 +720,9 @@ ruleset scalarruleset
 
   SRR( abs(E1_)                           ,  -P1_ ,
    [](const exprmap &m) { return isnonpos(m.at(1)); } ),
+	 }};
 
+ruleset derivscalarrules{{
   SRR( deriv(E1_,V2_,V3_)                 ,  scalar(0),
       [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(2))); }),
   SRR( deriv(V1_,V1_,V3_)                 ,  scalar(1)                   ),
@@ -735,7 +753,9 @@ ruleset scalarruleset
 					evalat(P3_,P5_,P6_),evalat(P4_,P5_,P6_))
 		  + deriv(P4_,P5_,P6_)*evalat(evalat(P1_,P2_,P4_),P5_,P6_)
 		  - deriv(P3_,P5_,P6_)*evalat(evalat(P1_,P2_,P3_),P5_,P6_)          ),
+}};
 
+ruleset integralscalarrules {{
   SRR( integrate(E1_+E2_,E3_,E4_,E5_), integrate(P1_,P3_,P4_,P5_) + integrate(P2_,P3_,P4_,P5_) ),
 
   SRR( integrate(E1_*E2_,E3_,E4_,E5_), P1_ * integrate(P2_,P3_,P4_,P5_) ,
@@ -759,7 +779,9 @@ ruleset scalarruleset
 	 [](const exprmap &m) { return isconstexpr(m.at(1),getvar(m.at(3))); }   ),
   SRR( sum(E1_*E2_,V3_,E4_,E5_)           , sum(P1_,P3_,P4_,P5_)*P2_,
 	 [](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); }   ),
+}};
 
+ruleset sumprodscalarrules {{
   toptr<bigopexpand<scalarreal>>(3,sumop,pluschain,0),
   toptr<bigopexpand<scalarreal>>(3,prodop,multiplieschain,1),
 
@@ -786,9 +808,15 @@ ruleset scalarruleset
 		ifthenelse(P4_-P3_,scalar(0),psum(P2_,P4_+P5_) - psum(P2_,P3_+P5_-1)),
   	[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(1)))
 				&& isconstexpr(m.at(5),getvar(m.at(1))); }   ),
+}};
 
-  toptr<consteval>(),
-
+ruleset numericevalrules {{
+		  toptr<consteval>(),
 	 }};
 
+ruleset scalarruleset = basicscalarrules
+			+ derivscalarrules
+			+ integralscalarrules
+			+ sumprodscalarrules
+			+ numericevalrules;
 #endif

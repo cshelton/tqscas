@@ -3,6 +3,21 @@
 
 using namespace std;
 
+void checkrewrite(const expr &e, const expr &newe, const expr &v) {
+	auto newset = scalarruleset;
+	newset.setvar(getvar(v));
+	expr re = newset.rewrite(e);
+	if (re.sameas(newe)) {
+		cout << "pass: ";
+		cout << tostring(e) << " =?=> " << tostring(newe) << endl;
+	} else {
+		cout << "FAIL: ";
+		cout << tostring(e) << " =?=> " << tostring(newe) << endl;
+		cout << "\toutput = " << tostring(re) << endl;
+		cout << "\ttarget = " << tostring(newe) << endl;
+	}
+}
+
 void checkrewrite(const expr &e, const expr &newe) {
 	expr re = scalarruleset.rewrite(e);
 	if (re.sameas(newe)) {
@@ -41,14 +56,20 @@ int main(int argc, char **argv) {
 	checkrewrite(log(exp(x+1-x)),scalar(1));
 	checkrewrite(log(x/x),scalar(0));
 	checkrewrite(log(ifthenelse(x,x,x*x)),ifthenelse(x,log(x),2*log(x)));
+
+	checkrewrite(x*y,x*y,y);
+	checkrewrite(x*y,y*x,x);
+
 	checkrewrite(deriv(2*x+y,x),scalar(2));
 	checkrewrite(deriv(x*x,x),2*x);
 	checkrewrite(deriv(log(x*y),x),pow(x,-1));
 	checkrewrite(deriv(log(x+y*x),x),y*pow(x+x*y,-1)+pow(x+x*y,-1));
+
 	checkrewrite(abs(x*x),pow(x,2));
 	checkrewrite(abs(-x*x),pow(x,2));
 	checkrewrite(abs(log(1+x*x)),log(1+pow(x,2)));
 	checkrewrite(abs(log(0.5+x*x)),abs(log(0.5+pow(x,2))));
+
 	checkrewrite(sum(x,x,1,10),scalar(55));
 	checkrewrite(sum(sum(x*y,x,1,10),y,0,2),scalar(55*3));
 	checkrewrite(sum(y,x,1,10),10*y);
@@ -64,25 +85,14 @@ int main(int argc, char **argv) {
 	checkrewrite(sum((x+3),x,0,y-3),ifthenelse(-3+y,0,-3+0.5*y+0.5*pow(y,2)));
 	checkrewrite(sum(x*x,x,0,y),ifthenelse(y,0,F(1,6)*y + F(1,2)*pow(y,2) + F(1,3)*pow(y,3)));
 	checkrewrite(sum(x*x,x,4,y),ifthenelse(-4+y,0,scalar(-14)+F(1,6)*y + F(1,2)*pow(y,2) + F(1,3)*pow(y,3)));
-/* below doesn't work out this way currently
-	checkrewrite(sum((x+4)*(x+4),x,0,y-4),ifthenelse(-4+y,0,scalar(-14)+F(1,6)*y + F(1,2)*pow(y,2) + F(1,3)*pow(y,3)));
-*/
+// below doesn't work out this way currently
+	//checkrewrite(sum((x+4)*(x+4),x,0,y-4),ifthenelse(-4+y,0,scalar(-14)+F(1,6)*y + F(1,2)*pow(y,2) + F(1,3)*pow(y,3)));
 	checkrewrite(sum(x,x,y+2,y),scalar(0));
 	checkrewrite(sum(x*x,x,y+2,y),scalar(0));
 
 	checkrewrite(deriv(integrate(y*y,y,0,1),x),scalar(0));
 
-/* w/o table integration
-	checkrewrite(deriv(integrate(y*x,y,0,1),x),integrate(y,y,0,1));
-	checkrewrite(deriv(integrate(y*x,y,x,1),x),-1*pow(x,2)+integrate(y,y,x,1));
-
-	checkrewrite(integrate(y+x,y,x,1),integrate(x,y,x,1)+integrate(y,y,x,1));
-	checkrewrite(integrate(y*x,y,x,1),x*integrate(y,y,x,1));
-	checkrewrite(integrate(y*z,y,x,1),z*integrate(y,y,x,1));
-	checkrewrite(integrate(y,y,0,1),integrate(y,y,0,1));
-*/
-/* w/ table integration
-*/
+// w/ table integration
 	checkrewrite(deriv(integrate(y*x,y,0,1),x),F(1,2));
 	checkrewrite(deriv(integrate(y*x,y,x,1),x),F(1,2)+F(-3,2)*pow(x,2));
 
@@ -106,3 +116,13 @@ int main(int argc, char **argv) {
 
 	
 }
+
+/* w/o table integration
+	checkrewrite(deriv(integrate(y*x,y,0,1),x),integrate(y,y,0,1));
+	checkrewrite(deriv(integrate(y*x,y,x,1),x),-1*pow(x,2)+integrate(y,y,x,1));
+
+	checkrewrite(integrate(y+x,y,x,1),integrate(x,y,x,1)+integrate(y,y,x,1));
+	checkrewrite(integrate(y*x,y,x,1),x*integrate(y,y,x,1));
+	checkrewrite(integrate(y*z,y,x,1),z*integrate(y,y,x,1));
+	checkrewrite(integrate(y,y,0,1),integrate(y,y,0,1));
+*/

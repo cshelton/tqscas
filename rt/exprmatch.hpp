@@ -5,6 +5,7 @@
 #include <numeric>
 #include <algorithm>
 #include <map>
+#include "util.hpp"
 
 using exprmap = std::map<int,expr>;
 using opexprmap = optional<exprmap>;
@@ -203,30 +204,6 @@ struct matchmodop : public matchop {
 
 };
 
-struct matchassocop : public matchmodop {
-	matchassocop(op orig) : matchmodop(orig,"A") {}
-
-	virtual opexprmap match(const expr &e,
-			const std::vector<expr> &matchch) const {
-		if (e.isleaf() || e.children().size()<2)
-			return ::match(e,expr{o,matchch});
-		auto ech = e.children();
-		auto enode = e.asnode();
-		expr mexpr{o,matchch};
-		std::vector<int> ii(ech.size());
-		std::iota(ii.begin(),ii.end(),0);
-		do {
-			std::vector<expr> newch;
-			newch.reserve(ii.size());
-			for(int i=0;i<ii.size();i++)
-				newch.emplace_back(ech[ii[i]]);
-			auto ret = ::match(expr{enode,newch},mexpr);
-			if (ret) return ret;
-		} while(std::next_permutation(ii.begin(),ii.end()));
-		return {};
-	}
-};
-
 struct matchremainderop : public matchmodop {
 	matchremainderop(op orig) : matchmodop(orig,"R") {}
 
@@ -250,6 +227,55 @@ struct matchremainderop : public matchmodop {
 		return opexprmap{in_place,retmap};
 	}
 };
+
+struct matchassocop : public matchmodop {
+	matchassocop(op orig) : matchmodop(orig,"A") {}
+
+	virtual opexprmap match(const expr &e,
+			const std::vector<expr> &matchch) const {
+		if (e.isleaf() || e.children().size()<2)
+			return ::match(e,expr{o,matchch});
+		auto ech = e.children();
+		auto enode = e.asnode();
+		bool isrem = std::dynamic_pointer_cast<matchremainderop>(o) != nullptr;
+		if (!isrem && ech.size()!=matchch.size()) return {};
+		if (isrem || ech.size()<=matchch.size()) {
+			/* below works perfectly well in all cases 
+			 * (and doesn't need to know about matchremainderop),
+			 * except if ech.size() gets too large
+			 */
+			/*
+			expr mexpr{o,matchch};
+			std::vector<int> ii(ech.size());
+			std::iota(ii.begin(),ii.end(),0);
+			do {
+				std::vector<expr> newch;
+				newch.reserve(ii.size());
+				for(int i=0;i<ii.size();i++)
+					newch.emplace_back(ech[ii[i]]);
+				auto ret = ::match(expr{enode,newch},mexpr);
+				if (ret) return ret;
+			} while(std::next_permutation(ii.begin(),ii.end()));
+			return {};
+			*/
+			pickn<expr> p(e.children(),matchch.size()-1);
+			expr mexpr{o,matchch};
+			do {
+				auto ret = ::match(expr{enode,p.x},mexpr);
+				if (ret) return ret;
+			} while(p.nextpick());
+			return {};
+		} else {
+			pickn<expr> p(matchch,matchch.size()-1);
+			do {
+				auto ret = ::match(e,expr{o,p.x});
+				if (ret) return ret;
+			} while(p.nextpick());
+			return {};
+		}
+	}
+};
+
 
 expr E_{makematchleaf<matchany>()};
 expr V_{makematchleaf<matchvar>()};
