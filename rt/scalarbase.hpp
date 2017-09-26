@@ -108,7 +108,7 @@ template<typename S>
 expr operator*(const expr &e1, const S &e2) {
 	if (!e1.isleaf() && e1.asnode()==multiplieschain) {
 		auto ch = e1.children();
-		ch.emplace_back(e2);
+		ch.emplace_back(scalar(e2));
 		return {multiplieschain,ch};
 	} else return {multiplieschain,e1,scalar(e2)};
 }

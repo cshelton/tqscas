@@ -2,6 +2,7 @@
 #define POLY_H
 
 #include "scalarrewrite.hpp"
+#include <numeric>
 
 template<typename T>
 struct polyinfo : public opinfo {
@@ -21,6 +22,14 @@ struct polyinfo : public opinfo {
 };
 
 const op polyop = toptr<polyinfo<scalarreal>>();
+
+// make a single term polynomial
+expr makepoly(const expr &x, int degree, const expr &coef) {
+	std::vector<expr> ch(degree+2,scalar(0));
+	ch[0] = x;
+	ch.back()=coef;
+	return {polyop,std::move(ch)};
+}
 
 expr polyadd(const expr &p1, const expr &p2) {
 	std::vector<expr> retch;
@@ -49,6 +58,35 @@ expr polyadd(const expr &p1, const expr &p2) {
 	retch.resize(lastnonzero+1);
 	return {polyop,std::move(retch)};
 }
+
+expr polysub(const expr &p1, const expr &p2) {
+	std::vector<expr> retch;
+	const std::vector<expr> &ch1 = p1.children();
+	const std::vector<expr> &ch2 = p2.children();
+	retch.reserve(std::max(ch1.size(),ch2.size()));
+	retch.emplace_back(ch1[0]); // assume vars match
+	int i=1;
+	int lastnonzero=1; // need at least the constant, even if zero
+	while(i<ch1.size() && i<ch2.size()) {
+		expr c = scalarruleset.rewrite(ch1[i]-ch2[i]);
+		if (!isconst(c) || getconst<scalarreal>(c)!=0.0) lastnonzero = i;
+		retch.emplace_back(c);
+		++i;
+	}
+	while(i<ch1.size()) {
+		lastnonzero = i;
+		retch.emplace_back(ch1[i]);
+		++i;
+	}
+	while(i<ch2.size()) {
+		lastnonzero = i;
+		retch.emplace_back(scalarruleset.rewrite(-ch2[i]));
+		++i;
+	}
+	retch.resize(lastnonzero+1);
+	return {polyop,std::move(retch)};
+}
+
 
 expr polymult(const expr &p1, const expr &p2) {
 	std::vector<expr> retch;
@@ -98,10 +136,9 @@ struct polyrewrite : public rewriterule {
 	}
 
 	expr topoly(const expr &e) const {
-		if (isconstexpr(e,v)) return {polyop,expr{v},e};
+		if (isconstexpr(e,v)) return makepoly(expr{v},0,e);
 		if (isop(e,polyop) && getvar(e.children()[0])==v) return e;
-		if (isvar(e) && getvar(e)==v)
-			return {polyop,expr{v},scalar(0),scalar(1)};
+		if (isvar(e) && getvar(e)==v) return makepoly(expr{v},1,scalar(1));
 		assert(0);
 		return e;
 	}
@@ -109,8 +146,6 @@ struct polyrewrite : public rewriterule {
 
 	virtual ruleptr clone() const { return std::make_shared<rewriterule>(*this); }
 	virtual optional<expr> apply(const expr &e) const {
-		//if (isconstexpr(e,getvar(v))) return optional<expr>{in_place,polyop,v,e};
-		//if (v==e) return optional<expr>{in_place,polyop,v,scalar(0),scalar(1)};
 		if (e.isleaf()) return {};
 		auto &ch = e.children();
 		if (isop(e,powerop)) {
@@ -159,6 +194,42 @@ struct polyrewrite : public rewriterule {
 	}
 };
 
+bool polyiszero(const expr &e) {
+	assert(isop(e.asnode(),polyop));
+	auto &ch = e.children();
+	return ch.size()==2 && isconst(ch[1]) && getconst<scalarreal>(ch[1])==0.0;
+}
+
+int polydegree(const expr &e) {
+	assert(isop(e.asnode(),polyop));
+	return e.children().size()-2;
+}
+
+expr polyvar(const expr &p) {
+	return p.children().front();
+}
+
+expr polyleadingcoef(const expr &e) {
+	assert(isop(e.asnode(),polyop));
+	return e.children().back();
+}
+
+bool polyisunivariate(const expr &e) {
+	assert(isop(e.asnode(),polyop));
+	auto &ch = e.children();
+	for(int i=1;i<ch.size();i++)
+		if (!isconst(ch[i])) return false;
+	return true;
+}
+
+bool polyisint(const expr &e) {
+	assert(isop(e.asnode(),polyop));
+	auto &ch = e.children();
+	for(int i=1;i<ch.size();i++)
+		if (!isconst(ch[i]) || !getconst<scalarreal>(ch[i]).isint()) return false;
+	return true;
+}
+
 optional<expr> topoly(const expr &e, const expr &x) {
 	assert(isvar(x));
 	ruleset rs = basicscalarrules;
@@ -177,6 +248,68 @@ optional<expr> topoly(const expr &e, const expr &x) {
 	expr pe = rs.rewrite(e);
 	if (polyrr->ispoly(pe)) return optional<expr>{in_place,polyrr->topoly(pe)};
 	return {};
+}
+
+
+// returns quotient (q) and remainder (r) s.t.
+// q*d + r = n
+// assumes n and d are polynomial expressions
+std::pair<expr,expr> polydivide(const expr &n, const expr &d) {
+	expr x = polyvar(n);
+	expr q = makepoly(x,0,scalar(0));
+	expr r = n;
+	int delta;
+	while (!polyiszero(r) && (delta=polydegree(r)-polydegree(d))>=0) {
+		auto t = makepoly(x,delta,basicscalarrules.rewrite(polyleadingcoef(r)/polyleadingcoef(d)));
+		q = polyadd(q,t);
+		r = polysub(r,polymult(d,t));
+	}
+	return std::make_pair(q,r);
+}
+
+
+std::pair<expr,expr> polypseudodivide(expr n, const expr &d) {
+	expr x = polyvar(n);
+	expr b = polyleadingcoef(d);
+	expr bk = makepoly(x,0,b);
+	int N = polydegree(n) - polydegree(d) + 1;
+	expr q = makepoly(x,0,scalar(0));
+	int delta;
+	while (!polyiszero(n) && (delta = polydegree(n)-polydegree(d))>=0) {
+		//std::cout << "q = " << tostring(q) << std::endl;
+		//std::cout << "r = " << tostring(n) << std::endl;
+		//std::cout << "delta = " << delta << std::endl;
+		expr t = makepoly(x,delta,polyleadingcoef(n));
+		//std::cout << "t = " << tostring(t) << std::endl;
+		//std::cout << "N = " << N << std::endl;
+		--N;
+		q = polyadd(polymult(bk,q),t);
+		n = polysub(polymult(bk,n),polymult(t,d));
+	}
+	expr bN = makepoly(x,0,basicscalarrules.rewrite(pow(b,N)));
+	return std::make_pair(polymult(q,bN),polymult(n,bN));
+}
+
+// from F. Winkler WS 2010/11 "Computer Algebra" "Greatest common divisors of polynomials"
+expr polygcd_mod(expr a, expr b) {
+	assert(polyisint(a) && polyisint(b));
+	int d = std::gcd(getconst<scalarreal>(polyleadingcoef(a)).asint(),
+			getconst<scalarreal>(polyleadingcoef(b)).asint());
+	int M = 2*d;// TODO
+}
+
+expr polygcd(expr a, expr b) {
+	while(!polyiszero(b)) {
+		auto qr = polydivide(a,b);
+		a = b;
+		b = qr.second;
+	}
+	return a;
+}
+
+// Yun
+std::vector<expr> sqfreedecomp(const expr &p) {
+	//TODO
 }
 
 #endif
