@@ -1,1 +1,1 @@
-# TQSCAS: Tiny Quasi-Symbolic Computer Algebra System
+# TQSCAS: Targeted Quasi-Symbolic Computer Algebra System
