@@ -158,7 +158,9 @@ expr newvar() {
 
 template<typename T>
 expr newconst(const T &v) {
-	return expr{constval{v}};
+	constval VV{v};
+	return expr{VV};
+	//return expr{constval{v}};
 }
 
 any getconstany(const expr &e) {

@@ -12,6 +12,7 @@ Longer / Maybe:
 	* Add ranges / sets ? (partially done)
 	- Add trig functions (or just use complex numbers?)
 	- Add opaque functions
+	- Add noexcepts so that move semantics are used when possible
 
 Done:
 	- Redo der and int to be operators with rewrite rules

@@ -4,6 +4,7 @@
 #include "exprbase.hpp"
 #include "exprmatch.hpp"
 #include <map>
+#include <iterator>
 
 expr substitute(const expr &e, const expr &x, const expr &v) {
 	return e.map([x,v](const expr &ex) {
@@ -35,6 +36,21 @@ expr substitute(const expr &e, const std::vector<subst> &st) {
 			return optional<expr>{};
 			});
 };
+
+expr operator|(expr e, std::vector<subst> st) {
+	return substitute(std::move(e),std::move(st));
+}
+
+std::vector<subst> operator<<(expr xx, expr vv) {
+	return {1,subst{std::move(xx),std::move(vv)}};
+}
+
+std::vector<subst> operator&(std::vector<subst> v1, std::vector<subst> v2) {
+	std::vector<subst> ret(std::move(v1));
+	ret.insert(ret.end(),std::make_move_iterator(v2.begin()),
+			std::make_move_iterator(v2.end()));
+	return ret;
+}
 
 //------------------
 
