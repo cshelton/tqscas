@@ -596,6 +596,12 @@ std::vector<std::pair<expr,expr>> stdantiderivs
 				  ifeqthenelse(P3_+1, log(abs(P1_*x_+P2_))/P1_,
 					  			pow(P1_*x_+P2_,P3_+1)/(P3_+1)/P1_))),
 
+		 // added to make example in proposal work... needs to be
+		 // more general
+		 ADR(  pow(k1_,k2_*x_),
+				 ifeqthenelse(P2_,x_,
+					 pow(P1_,P2_*x_)/(P2_*log(P1_)))),
+
 	 }};
 
 // all of the next few "helpers" should perhaps be moved elsewhere
@@ -744,9 +750,14 @@ ruleset derivscalarrules{{
   SRR( deriv(expr{heavisideop,E1_},V2_,V3_),
 				 evalat(expr{diracop,P1_},P2_,P3_)*deriv(P1_,P2_,P3_) ),
 
+  // not sure this is right with diracop
   SRR( deriv(ifthenelse(E1_,E2_,E3_),V4_,V5_)   ,
 		  evalat(expr{diracop,P1_},P4_,P5_)*deriv(P1_,P4_,P5_)*(E2_-E3_)
 		  + ifthenelse(P1_,deriv(P2_,P4_,P5_),deriv(P3_,P4_,P5_))           ),
+
+  SRR( deriv(ifeqthenelse(E1_,E2_,E3_),V4_,V5_)  ,
+		  ifeqthenelse(evalat(P1_,P4_,P5_),
+			  deriv(P2_,P4_,P5_),deriv(P3_,P4_,P5_))                       ),
 
   SRR( deriv(integrate(E1_,E2_,E3_,E4_),E5_,E6_)  ,
 		  integrate(deriv(P1_,P5_,P6_),P2_,

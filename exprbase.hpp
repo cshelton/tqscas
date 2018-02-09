@@ -2,7 +2,6 @@
 #define EXPRBASE_HPP
 
 #include "gentree.hpp"
-#include <experimental/any>
 #include <experimental/optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -12,6 +11,9 @@
 #include <typeindex>
 #include "scalartype.hpp"
 
+/*
+#include <experimental/any>
+ 
 using any = std::experimental::any;
 
 template<typename T>
@@ -22,9 +24,68 @@ template<typename T>
 auto MYany_cast(any &a) {
 	     return std::experimental::any_cast<T>(a);
 }
+*/
+
+/*
+#include <boost/spirit/home/support/detail/hold_any.hpp>
+
+using any = boost::spirit::hold_any;
+
+template<typename T>
+auto MYany_cast(const any &a) {
+	return boost::spirit::any_cast<T>(a);
+}
+template<typename T>
+auto MYany_cast(any &a) {
+	return boost::spirit::any_cast<T>(a);
+}
+*/
+
+#include <boost/any.hpp>
+
+using any = boost::any;
+
+template<typename T>
+auto MYany_cast(const any &a) {
+	return boost::any_cast<T>(a);
+}
+template<typename T>
+auto MYany_cast(any &a) {
+	return boost::any_cast<T>(a);
+}
+
 
 struct noexprT {};
 
+struct constval {
+	any v;
+	constval(any val) : v{std::move(val)} {}
+	template<typename T>
+	constval(T val) : v{std::move(val)} {}
+};
+
+struct varinfo {
+	std::string name;
+	const std::type_info &t;
+
+	varinfo(const std::string &n, const std::type_info &ti) : name(n), t(ti) {}
+};
+
+struct var : public std::shared_ptr<varinfo> {
+	var(const varinfo &vi) :
+		std::shared_ptr<varinfo>(std::make_shared<varinfo>(vi)) {}
+	var(varinfo &&vi) :
+		std::shared_ptr<varinfo>(std::make_shared<varinfo>(std::move(vi))) {}
+};
+
+struct internalT {
+	any v;
+	internalT(any val) : v{std::move(val)} {}
+	template<typename T>
+	internalT(T val) : v{std::move(val)} {}
+};
+
+//typedef boost::variant<noexprT,constval,var,internalT> leaf;
 typedef any leaf;
 struct opinfo;
 
@@ -33,23 +94,6 @@ using expr = gentree<leaf,op>;
 
 any eval(const expr &e);
 
-struct constval {
-	any v;
-	constval(any val) : v{std::move(val)} {
-		/*
-		double vv = MYany_cast<double>(v);
-		if (vv!=0.0 && std::abs(vv)<1e-6)
-				std::cout << "RIGHT HERE" << std::endl;
-				*/
-	}
-	template<typename T>
-	constval(T val) : v{std::move(val)} {
-		/*
-		if (val!=0.0 && std::abs(val)<1e-6)
-				std::cout << "RIGHT HERE" << std::endl;
-				*/
-	}
-};
 
 struct opinfo {
 	// perhaps narg isn't needed (narg=0 => variable)
@@ -96,19 +140,6 @@ struct opinfo {
 	virtual bool caneval() const { return true; }
 };
 
-struct varinfo {
-	std::string name;
-	const std::type_info &t;
-
-	varinfo(const std::string &n, const std::type_info &ti) : name(n), t(ti) {}
-};
-
-struct var : public std::shared_ptr<varinfo> {
-	var(const varinfo &vi) :
-		std::shared_ptr<varinfo>(std::make_shared<varinfo>(vi)) {}
-	var(varinfo &&vi) :
-		std::shared_ptr<varinfo>(std::make_shared<varinfo>(std::move(vi))) {}
-};
 
 namespace std { 
 	template<> struct hash<var> {
@@ -156,14 +187,15 @@ expr newvar() {
 	return newvar(typeid(T));
 }
 
+
 template<typename T>
 expr newconst(const T &v) {
-	constval VV{v};
-	return expr{VV};
-	//return expr{constval{v}};
+	constval t{v};
+	return expr{t};
 }
 
 any getconstany(const expr &e) {
+	//return boost:get<constval>(e.asleaf()).v;
 	return MYany_cast<constval>(e.asleaf()).v;
 }
 
@@ -174,12 +206,14 @@ T getconst(const expr &e) {
 
 
 var getvar(const expr &e) {
+	//return boost:get<var>(e.asleaf());
 	return MYany_cast<var>(e.asleaf());
 }
 
 
 const std::type_info &getvartype(const expr &e) {
-    return (MYany_cast<var>(e.asleaf()))->t;
+	//return (boost:get<var>(e.asleaf()))->t;
+	return (MYany_cast<var>(e.asleaf()))->t;
 }
 
 template<typename T>
@@ -348,7 +382,7 @@ struct binopinfo : public opinfo {
 		: opinfo(2,opname,inf,la,pr), op{} {}
 
 	virtual any opeval(const any &x1, const any &x2) const {
-		return {op(std::experimental::any_cast<T1>(x1),std::experimental::any_cast<T2>(x2))};
+		return {op(MYany_cast<T1>(x1),MYany_cast<T2>(x2))};
 	}
 };
 
@@ -359,7 +393,7 @@ struct uniopinfo : public opinfo {
 		: opinfo(1,opname,inf,la,pr), op{} {}
 
 	virtual any opeval(const any &x1) const {
-		return {op(std::experimental::any_cast<T1>(x1))};
+		return {op(MYany_cast<T1>(x1))};
 	}
 };
 

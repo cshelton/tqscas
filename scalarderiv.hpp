@@ -39,6 +39,10 @@ expr derivreal(const expr &e, const expr &x) {
 		auto df = derivreal(f,x);
 		return df/f;
 	}
+	if (op==condeqop) {
+		auto &ch = e.children();
+		return ifeqthenelse(ch[0],derivreal(ch[1],x),derivreal(ch[2],x));
+	}
 	/*
 	if (op==condop) {
 		auto &ch = e.children();

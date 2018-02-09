@@ -127,7 +127,7 @@ class gentree {
 		// do we need/want this??
 		template<typename T>
 		explicit gentree(T &&l) : root(std::make_shared<treenodeT>(
-					std::forward<T>(l))) {
+					leafT(std::forward<T>(l)))) {
 		}
 
 		template<typename... Ts>

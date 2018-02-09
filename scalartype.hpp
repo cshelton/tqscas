@@ -5,6 +5,7 @@
 #include <boost/operators.hpp>
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 
 struct scalarreal : boost::operators<scalarreal> {
 	template<typename... T>
@@ -242,6 +243,17 @@ std::string tostring(const scalarreal &s) {
 		default: return {"?"};
 	}
 }
+
+/*
+std::ostream &operator<<(std::ostream &os, const scalarreal &s) {
+	return os << tostring(s);
+}
+
+std::istream &operator>>(std::istream &is, scalarreal &s) {
+	// not implemented
+	return is;
+}
+*/
 
 scalarreal abs(const scalarreal &s) {
 	if (s.v.which()==0)

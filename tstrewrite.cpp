@@ -114,6 +114,15 @@ int main(int argc, char **argv) {
 	checkrewrite(integrate(1/(3*x+3)/(3*x+3),x,2,y),
 		F(1,27) + F(-1,3)*pow(3+3*y,-1));
 
+	expr lda = exp(-y*x)+1;
+	expr tpt = scalar(3.0);
+	expr l3 = substitute(lda,x,tpt);
+	expr lt = integrate(exp(-y*x)+1,x,0.0,5.0);
+	expr llh = scalarruleset.rewrite(log(l3*exp(-lt)));
+	cout << tostring(llh) << endl << endl;
+	expr dllh = scalarruleset.rewrite(deriv(llh,y,z));
+	cout << tostring(dllh) << endl << endl;
+	checkrewrite(llh,x);
 	
 }
 

@@ -54,12 +54,18 @@ std::string tostring(const any &x) {
 		   {typeid(unsigned long long),
 		    [](const any &x) { return std::to_string(MYany_cast<unsigned long long>(x)); }},
 		 };
+	/*
 	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
 		tostringlookup =
 		 {
 		   {typeid(constval),
 			   [tostringlookupconst](const any &x) {
 				   constval c = MYany_cast<constval>(x);
+				   return tostringlookupconst.at(c.v.type())(c.v);
+			   }},
+		   {typeid(tempival),
+			   [tostringlookupconst](const any &x) {
+				   tempival c = MYany_cast<tempival>(x);
 				   return tostringlookupconst.at(c.v.type())(c.v);
 			   }},
 		   {typeid(placeholder),
@@ -69,12 +75,20 @@ std::string tostring(const any &x) {
 		  };
 
 	return tostringlookup[x.type()](x);
+		  */
+	return tostringlookupconst.at(x.type())(x);
 }
 
 std::string tostring(const expr &e) {
 	return e.fold([](const leaf &l) {
 			if (l.type() == typeid(var)) return
 				std::make_pair(MYany_cast<var>(l)->name,-1);
+			else if (l.type() == typeid(constval))
+				return std::make_pair(tostring(MYany_cast<constval>(l).v),-1);
+			else if (l.type() == typeid(placeholder))
+				return std::make_pair(std::string("\\")+std::to_string(MYany_cast<placeholder>(l).num),-1);
+			else if (l.type() == typeid(matchleaf))
+				return std::make_pair(MYany_cast<matchleaf>(l)->name(),-1);
 			else return std::make_pair(tostring(l),-1);
 			},
 			[](const op &o, const std::vector<std::pair<std::string,int>> &ch) {
