@@ -206,6 +206,13 @@ namespace std {
 		static scalarreal infinity() {
 			return scalarreal{std::numeric_limits<double>::infinity()};
 		}
+		static constexpr bool is_specialized = true;
+		static constexpr bool is_signed = true;
+		static constexpr bool is_integer = false;
+		static constexpr bool is_exact = false;
+		static constexpr int digits = numeric_limits<double>::digits;
+		static constexpr int digits10 = numeric_limits<double>::digits10;
+		static constexpr int radix = numeric_limits<double>::radix;
 	};
 
 	bool isfinite(const scalarreal &s) {
