@@ -24,9 +24,7 @@ template<typename T>
 auto MYany_cast(any &a) {
 	     return std::experimental::any_cast<T>(a);
 }
-*/
 
-/*
 #include <boost/spirit/home/support/detail/hold_any.hpp>
 
 using any = boost::spirit::hold_any;
@@ -53,7 +51,6 @@ template<typename T>
 auto MYany_cast(any &a) {
 	return boost::any_cast<T>(a);
 }
-
 
 struct noexprT {};
 
