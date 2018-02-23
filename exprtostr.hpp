@@ -3,127 +3,21 @@
 
 #include <string>
 #include "exprbase.hpp"
-#include "exprsubst.hpp"
-#include "exprmatch.hpp"
-#include <unordered_map>
-#include <typeinfo>
-#include <typeindex>
-#include <utility>
-#include <numeric>
-#include <sstream>
-#include <iomanip>
-#include "scalartype.hpp"
+#include "typestuff.hpp"
 
-namespace tmpstd {
-
-	std::string to_string(double d) {
-		std::ostringstream ss;
-		ss << std::setprecision(17) << d;
-		return {ss.str()};
-	}
-
-	std::string to_string(int i) {
-		std::ostringstream ss;
-		ss << i << "i";
-		return {ss.str()};
-	}
-}
-
-std::string tostring(const any &x) {
-	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
-		tostringlookupconst =
-		 {
-		   {typeid(scalarreal),
-		    [](const any &x) { return tostring(MYany_cast<scalarreal>(x)); }},
-		   {typeid(double),
-		    [](const any &x) { return tmpstd::to_string(MYany_cast<double>(x)); }},
-		   {typeid(long double),
-		    [](const any &x) { return std::to_string(MYany_cast<long double>(x)); }},
-		   {typeid(float),
-		    [](const any &x) { return std::to_string(MYany_cast<float>(x)); }},
-		   {typeid(int),
-		    [](const any &x) { return tmpstd::to_string(MYany_cast<int>(x)); }},
-		   {typeid(unsigned int),
-		    [](const any &x) { return std::to_string(MYany_cast<unsigned int>(x)); }},
-		   {typeid(long),
-		    [](const any &x) { return std::to_string(MYany_cast<long>(x)); }},
-		   {typeid(unsigned long),
-		    [](const any &x) { return std::to_string(MYany_cast<unsigned long>(x)); }},
-		   {typeid(long long),
-		    [](const any &x) { return std::to_string(MYany_cast<long long>(x)); }},
-		   {typeid(unsigned long long),
-		    [](const any &x) { return std::to_string(MYany_cast<unsigned long long>(x)); }},
-		 };
-	/*
-	std::unordered_map<std::type_index,std::function<std::string(const any &)>>
-		tostringlookup =
-		 {
-		   {typeid(constval),
-			   [tostringlookupconst](const any &x) {
-				   constval c = MYany_cast<constval>(x);
-				   return tostringlookupconst.at(c.v.type())(c.v);
-			   }},
-		   {typeid(tempival),
-			   [tostringlookupconst](const any &x) {
-				   tempival c = MYany_cast<tempival>(x);
-				   return tostringlookupconst.at(c.v.type())(c.v);
-			   }},
-		   {typeid(placeholder),
-		    [](const any &x) { return std::string("\\")+std::to_string(MYany_cast<placeholder>(x).num); }},
-		   {typeid(matchleaf),
-		    [](const any &x) { return MYany_cast<matchleaf>(x)->name(); }},
-		  };
-
-	return tostringlookup[x.type()](x);
-		  */
-	return tostringlookupconst.at(x.type())(x);
-}
-
-std::string tostring(const expr &e) {
+template<typename E>
+std::string tostring(const E &e) {
 	return e.fold([](const leaf &l) {
-			if (l.type() == typeid(var)) return
-				std::make_pair(MYany_cast<var>(l)->name,-1);
-			else if (l.type() == typeid(constval))
-				return std::make_pair(tostring(MYany_cast<constval>(l).v),-1);
-			else if (l.type() == typeid(placeholder))
-				return std::make_pair(std::string("\\")+std::to_string(MYany_cast<placeholder>(l).num),-1);
-			else if (l.type() == typeid(matchleaf))
-				return std::make_pair(MYany_cast<matchleaf>(l)->name(),-1);
-			else return std::make_pair(tostring(l),-1);
+			if (istype<var>(l))
+				return std::make_pair(std::get<var>(l)->name,0);
+			if (istype<noexprT>(l))
+				return std::make_pair(std::string(""),0);
+			return std::visitor([](auto &&a) -> std::string {
+					return std::to_string(std::forward<decltype(a)>(a));
+					}, l);
 			},
 			[](const op &o, const std::vector<std::pair<std::string,int>> &ch) {
-				std::string ret;
-				if (!o->infix || ch.size()<=1) {
-					ret += o->name;
-					if (ch.size()>=1) {
-						ret += '(';
-						ret += ch[0].first;
-						for(int i=1;i<ch.size();i++) {
-							ret += ',';
-							ret += ch[i].first;
-						}
-						ret += ')';
-					} else if (!ch.empty()) {
-						if (o->prec<ch[0].second) {
-							ret += '(';
-							ret += ch[0].first;
-							ret += ')';
-						} else ret += ' ' + ch[0].first;
-					} else ret += "()";
-				} else {
-					if (o->prec<ch[0].second || o->prec==ch[0].second && !o->leftassoc) {
-						ret += '('; ret += ch[0].first; ret += ')';
-					} else ret += ch[0].first;
-					for(int i=1;i<ch.size();i++) {
-						ret += o->name;
-						if (o->prec<ch[i].second
-							//	|| i!=ch.size()-1
-								|| (o->prec==ch[i].second && o->leftassoc)) {
-							ret += '('; ret += ch[i].first; ret += ')';
-						} else ret += ch[i].first;
-					}
-				}
-				return std::make_pair(ret,o->prec);
+				return std::make_pair(write(o,ch),precidence(o));
 			}
 	).first;
 }
@@ -146,30 +40,35 @@ std::string draw(const expr &e) {
 	};
 
 	auto lines = e.fold([](const leaf &l) {
-			if (l.type() == typeid(var))
-				return retT(MYany_cast<var>(l)->name+"\n");
-			else return retT(tostring(l)+"\n");
+			if (istype<var>(l))
+				return std::get<var>(l)->name+"\n";
+			if (istype<noexprT>(l))
+				return std::make_pair(std::string("\n"),0);
+			return std::visitor([](auto &&a) -> std::string {
+				return std::to_string(std::forward<decltype(a)>(a))+"\n";
+				}, l);
 			},
 			[](const op &o, const std::vector<retT> &ch) {
-				if (ch.empty()) return retT(o->treename);
+				auto sym = symbol(o);
+				if (ch.empty()) return retT(sym);
 				retT ret("");
 				for(int i=0;i<ch.size();i++) {
 					std::string pre =
-						std::string(o->treename.size()+4,' ')
+						std::string(sym.size()+4,' ')
 						+ (i==0 ? "   " : "|  ");
 					std::string post =
-						std::string(o->treename.size()+4,' ')
+						std::string(sym.size()+4,' ')
 						+ (i==ch.size()-1 ? "   " : "|  ");
 					std::string mid;
 					if (i*2== ch.size()-1) {
-						if (i==0) mid = std::string("[") + o->treename + "] --- ";
-						else mid = std::string("[") + o->treename + "] -+- ";
+						if (i==0) mid = std::string("[") + sym + "] --- ";
+						else mid = std::string("[") + sym + "] -+- ";
 					} else if (i==0) {
-						mid = std::string(o->treename.size()+4,' ')+"/- ";
+						mid = std::string(sym.size()+4,' ')+"/- ";
 					} else if (i==ch.size()-1) {
-						mid = std::string(o->treename.size()+4,' ')+"\\- ";
+						mid = std::string(sym.size()+4,' ')+"\\- ";
 					} else {
-						mid = std::string(o->treename.size()+4,' ')+"+- ";
+						mid = std::string(sym.size()+4,' ')+"+- ";
 					}
 					if (i*2<ch.size()-1) {
 						auto ls = ch[i].single(pre,mid,post);
@@ -183,12 +82,51 @@ std::string draw(const expr &e) {
 						for(auto &l : ch[i].after) ret.after.emplace_back(post+l);
 					}
 				}
-				if (ch.size()%2 == 0) ret.at = std::string("[") + o->treename + "] < \n";
+				if (ch.size()%2 == 0) ret.at = std::string("[") + sym + "] < \n";
 				return ret;
 			}
 	);
 	auto ls = lines.single("","","");
 	return std::accumulate(ls.begin(),ls.end(),std::string(""));
+}
+
+// some helpful routines for constructing "write" functions for operators
+
+
+std::string putinparen(std::string s, bool yes) {
+	if (yes) return std::string("(") + s + std::string(")");
+	else return s;
+}
+
+template<typename O>
+std::string writeinplace(O op,
+		const std::vector<std::pair<std::string,int>> &subst,
+		bool leftassoc=true) {
+	int myprec = precidence(op);
+	if (subst.size()<=1) return subst[0].first;
+	std::string ret;
+	if (leftassoc) {
+		ret = putinparen(subst[0].first,subst[0].second>myprec);
+		for(int i=1;i<subst.size();i++)
+			ret += symbol(op) + putinparen(subst[i].first,subst[i].second>=myprec);
+	} else {
+		ret = putinparen(subst.back().first,subst.back().second>myprec);
+		for(int i=subst.size()-2;i>=0;i--)
+			ret += putinparen(subst[i].first,subst[i].second>=myprec) +
+				symbol(op) + ret;
+	}
+	return ret;
+}
+
+template<typename O>
+std::string writeasfunc(O op,
+		const std::vector<std::pair<std::string,int>> &subst) {
+	std::string ret = symbol(op) + "(";
+	for(int i=0;i<subst.size();i++) {
+		if (i) ret += ",";
+		ret += subst[i].first;
+	}
+	return ret+")";
 }
 
 #endif

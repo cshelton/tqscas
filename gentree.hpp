@@ -2,27 +2,18 @@
 #define GENTREE_HPP
 
 #include <memory>
-// to switch to std::variant when we get GCC 7
-#include <boost/variant.hpp>
+#include <variant.hpp>
 #include <vector>
 #include <utility>
 #include <iostream>
-// to switch to std::optional when we get GCC 7
-#include <experimental/optional>
-
-template<typename T>
-using optional = std::experimental::optional<T>;
-// note, in_place construction no longer explicit when
-// move from std::experimental -> std, so we can remove much verbiage
-auto in_place = std::experimental::in_place;
-
+#include <optional>
 
 template<typename LT, typename NT>
 class gentree {
 	private:
 		typedef LT leafT;
 		struct nodeT;
-		typedef boost::variant<leafT,nodeT> treenodeT;
+		typedef std::variant<leafT,nodeT> treenodeT;
 		typedef std::shared_ptr<treenodeT> treeptr;
 
 		struct nodeT {
@@ -144,11 +135,11 @@ class gentree {
 		template<typename LF, typename NF>
 		auto fold(LF leaffn, NF nodefn) const
 				-> decltype(leaffn(std::declval<leafT>())) {
-			if (isleaf()) return leaffn(boost::get<leafT>(*root));
+			if (isleaf()) return leaffn(std::get<leafT>(*root));
 			else {
 				typedef decltype(leaffn(std::declval<leafT>())) rT;
 				std::vector<rT> chret;
-				const nodeT &node = boost::get<nodeT>(*root);
+				const nodeT &node = std::get<nodeT>(*root);
 				chret.reserve(node.ch.size());
 				for(auto &c : node.ch)
 					chret.emplace_back(c.fold(leaffn,nodefn));
@@ -165,7 +156,7 @@ class gentree {
 
 		/*
 		template<typename F>
-		optional<gentree> mapmaybe(F fn) const {
+		std::optional<gentree> mapmaybe(F fn) const {
 			auto newtree = fn(*this);
 			if (newtree) return newtree;
 			if (isleaf()) return {};
@@ -183,12 +174,12 @@ class gentree {
 				} else if (!newch.empty()) newch.emplace_back(ch[i]);
 			}
 			if (newch.empty()) return {};
-			return optional<gentree>{in_place,asnode(),newch};
+			return std::optional<gentree>{asnode(),newch};
 		}
 		*/
 
 		template<typename F>
-		optional<gentree> mapmaybe(F fn) const {
+		std::optional<gentree> mapmaybe(F fn) const {
 			if (isleaf()) return fn(*this);
 			auto &ch = children();
 			std::vector<gentree> newch;
@@ -214,9 +205,9 @@ class gentree {
 		bool sameas(const gentree &t) const {
 			if (!(isleaf()==t.isleaf())) return false;
 			if (isleaf()) 
-				return boost::get<leafT>(*root)==boost::get<leafT>(*t.root);
-			const nodeT &n = boost::get<nodeT>(*root);
-			const nodeT &tn = boost::get<nodeT>(*t.root);
+				return std::get<leafT>(*root)==std::get<leafT>(*t.root);
+			const nodeT &n = std::get<nodeT>(*root);
+			const nodeT &tn = std::get<nodeT>(*t.root);
 			if (!(asnode() == t.asnode())) return false;
 			auto ch = children(), tch = t.children();
 			if (ch.size() != tch.size()) return false;
@@ -237,10 +228,10 @@ class gentree {
 
 		bool isleaf() const { return root->which()==0; }
 
-		const LT &asleaf() const { return boost::get<leafT>(*root); }
-		const NT &asnode() const { return boost::get<nodeT>(*root).node; }
+		const LT &asleaf() const { return std::get<leafT>(*root); }
+		const NT &asnode() const { return std::get<nodeT>(*root).node; }
 		const std::vector<gentree> &children() const {
-			const nodeT &n = boost::get<nodeT>(*root);
+			const nodeT &n = std::get<nodeT>(*root);
 			return n.ch;
 		}
 
