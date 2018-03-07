@@ -7,9 +7,10 @@
 #include <map>
 #include "util.hpp"
 
-using exprmap = std::map<int,expr>;
-using opexprmap = optional<exprmap>;
-
+// TODO:  What to do with this?
+//   Should it be templated to the type of the expression?
+//   If so, then the match method cannot be templated!
+//   If not, then need type erasure for match?
 struct matchop : public opinfo {
 	matchop(std::size_t na, const std::string &n, bool inf, bool la, int pr) 
 		: opinfo(na,n,inf,la,pr) {}
@@ -23,6 +24,7 @@ struct matchop : public opinfo {
 	}
 };
 
+// TODO: Ditto?
 struct matchleafT {
 	virtual opexprmap match(const expr &e) const {
 		return {};

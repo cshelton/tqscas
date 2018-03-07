@@ -17,8 +17,11 @@ struct constval {
 	constval(T val) : v{std::move(val)} {}
 };
 
+// adding type_info instead via a template parameter causes
+// problems in identifying and changing "variables in general"
+// in an expression
 struct varinfo {
-	std::string name;
+	const std::string name;
 	const std::type_info &t;
 
 	varinfo(const std::string &n, const std::type_info &ti) : name(n), t(ti) {}
@@ -43,6 +46,11 @@ using node = std::variant<std::monostate,...Ts>;
 template<typename Ts, typename Ops>
 using expr = gentree<unpackto_t<leaf,Ts>, unpackto_t<node,Ops>>;
 
+template<typename E>
+using exprmap = std::map<int,E>
+template<typename E>
+using opexprmap = std::optional<exprmap<E>>
+
 template<typename T>
 struct expraccess {};
 
@@ -57,6 +65,8 @@ using exprvalues = typename expraccess<E>::valuetype;
 template<typename E>
 using exprops = typename expraccess<E>::optype;
 
+// perhaps not necessary?
+/*
 template<typename,typename
 struct exprmerge{};
 
@@ -70,10 +80,11 @@ struct exprmerge<expr<Ts1,Ops1>,expr<Ts2,Ops2>> {
 
 template<typename E1, typename E2>
 using exprmerge_t = typename exprmerge<E1,E2>::type;
+*/
 
 template<typename VT, typename OP, typename ...Args>
 VT evalopdispatch(const OP &o, Args &&args) {
-	return std::visitor([&o](auto... params) {
+	return std::visitor([&o](auto... params) -> VT {
 			return evalop(o,std::forward<decltype(params)>(params)...);
 		}, std::forward<Args>(args)...);
 }
@@ -89,16 +100,16 @@ exprvalues<E> eval(const E &e) {
 		// support up to 4-arg hetrogeneous operators:
 		const exprops &op = e.asnode();
 		switch(e.children.size()) {
-			case 0: return evalopdispatch(op);
-			case 1: return evalopdispatch(op,eval(e.children[0]));
+			case 0: return evalopdispatch<rett>(op);
+			case 1: return evalopdispatch<rett>(op,eval(e.children[0]));
 			case 2: return evalopdispatch(op,
 						   eval(e.children[0]),
 						   eval(e.children[1]));
-			case 3: return evalopdispatch(op,
+			case 3: return evalopdispatch<rett>(op,
 						   eval(e.children[0]),
 						   eval(e.children[1]),
 						   eval(e.children[2]));
-			case 4: return evalopdispatch(op,
+			case 4: return evalopdispatch<rett>(op,
 						   eval(e.children[0]),
 						   eval(e.children[1]),
 						   eval(e.children[2]),
