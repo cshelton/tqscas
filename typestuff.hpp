@@ -23,6 +23,20 @@ constexpr bool isderivtype(const std::variant<Ts...> &v) {
 			},v);
 }
 
+//----
+
+// Does this exist in C++17 -- check
+
+template<typename>
+struct tmplparam{ };
+
+template<template<typename> T, typename TT>
+struct tmplparam<T<TT>> {
+	using type = TT;
+};
+
+template<typename T>
+using tmplparam_t = typename tmplparam<T>::type;
 
 //-----
 

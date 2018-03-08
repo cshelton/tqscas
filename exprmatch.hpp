@@ -7,26 +7,10 @@
 #include <map>
 #include "util.hpp"
 
-// TODO:  What to do with this?
-//   Should it be templated to the type of the expression?
-//   If so, then the match method cannot be templated!
-//   If not, then need type erasure for match?
-struct matchop : public opinfo {
-	matchop(std::size_t na, const std::string &n, bool inf, bool la, int pr) 
-		: opinfo(na,n,inf,la,pr) {}
-	matchop(std::size_t na, const std::string &n,
-			const std::string &tn, bool inf, bool la, int pr) 
-		: opinfo(na,n,tn,inf,la,pr) {}
-
-	virtual opexprmap match(const expr &e,
-			const std::vector<expr> &matchch) const {
-		return {};
-	}
-};
-
-// TODO: Ditto?
-struct matchleafT {
-	virtual opexprmap match(const expr &e) const {
+template<typename E>
+struct matcherbase {
+	virtual opexprmap match(const E &e,
+			const std::vector<E> &matchch) const {
 		return {};
 	}
 	virtual std::string name() const {
@@ -34,10 +18,17 @@ struct matchleafT {
 	}
 };
 
-using matchleaf = std::shared_ptr<matchleafT>;
+template<typename E>
+using matcher = std::shared_ptr<matcherbase<E>>;
 
-struct matchany : public matchleafT {
-	virtual opexprmap match(const expr &e) const {
+template<typename E>
+using exprmerge = exprunion_t<E,
+	 expr<std::tuple<matcher<E>>,std::tuple<matcher<E>>>>;
+
+template<typename E>
+struct matchany : public matcherbase<E> {
+	virtual opexprmap match(const E &e,
+			const std::vector<E> ) const {
 		return opexprmap{in_place};
 	}
 	virtual std::string name() const {
@@ -45,8 +36,10 @@ struct matchany : public matchleafT {
 	}
 };
 
-struct matchvar : public matchleafT {
-	virtual opexprmap match(const expr &e) const {
+template<typename E>
+struct matchvar : public matchbase<E> {
+	virtual opexprmap match(const E &e,
+			const std::vector<E> ) const {
 		if (isvar(e)) return opexprmap{in_place};
 		else return {};
 	}
@@ -55,9 +48,10 @@ struct matchvar : public matchleafT {
 	}
 };
 
-struct matchconst : public matchleafT {
-	// if not var, then const (?)
-	virtual opexprmap match(const expr &e) const {
+template<typename E>
+struct matchconst : public matcherbase<E> {
+	virtual opexprmap match(const E &e,
+			const std::vector<E> ) const {
 		if (isconst(e)) return opexprmap{in_place};
 		else return {};
 	}
@@ -66,12 +60,14 @@ struct matchconst : public matchleafT {
 	}
 };
 
-struct matchconstwrt : public matchleafT {
+template<typename E>
+struct matchconstwrt : public matcherbase<E> {
 	optional<vset> vars;
 	matchconstwrt() : vars{} {};
 	matchconstwrt(vset vs) : vars{in_place,std::move(vs)} {}
 
-	virtual opexprmap match(const expr &e) const {
+	virtual opexprmap match(const E &e,
+			const std::vector<E> ) const {
 		return isconstexpr(e,vars) ? opexprmap{in_place} : opexprmap{};
 	}
 	virtual std::string name() const {
@@ -79,12 +75,14 @@ struct matchconstwrt : public matchleafT {
 	}
 };
 
-struct matchnonconstwrt : public matchleafT {
+template<typename E>
+struct matchnonconstwrt : public matcherbase<E> {
 	optional<vset> vars;
 	matchnonconstwrt() : vars{} {};
 	matchnonconstwrt(vset vs) : vars{in_place,std::move(vs)} {}
 
-	virtual opexprmap match(const expr &e) const {
+	virtual opexprmap match(const E &e,
+			const std::vector<E> ) const {
 		return isnonconstexpr(e,vars) ? opexprmap{in_place} : opexprmap{};
 	}
 
@@ -96,11 +94,15 @@ struct matchnonconstwrt : public matchleafT {
 
 template<typename T, typename... As>
 matchleaf makematchleaf(As &&...args) {
-	return std::dynamic_pointer_cast<matchleafT>(std::make_shared<T>(std::forward<As>(args)...));
+	return std::dynamic_pointer_cast<matcherbase<tmplparam_t<E>>>
+					(std::make_shared<T>(std::forward<As>(args)...));
 }
 
 
-bool opsmatch(const expr &e1, const expr &e2) {
+// TODO: continue here... need std::variant information to
+// figure out how to match types (if one is opbinarychain<> of the other)
+template<typename E>
+bool opsmatch(const E &e1, const E &e2) {
 	if (e1.isleaf() || e2.isleaf()) return false;
 	auto n1 = e1.asnode();
 	auto n2 = e2.asnode();

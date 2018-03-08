@@ -65,13 +65,11 @@ using exprvalues = typename expraccess<E>::valuetype;
 template<typename E>
 using exprops = typename expraccess<E>::optype;
 
-// perhaps not necessary?
-/*
-template<typename,typename
-struct exprmerge{};
+template<typename,typename>
+struct exprunion{};
 
 template<typename Ts1, typename Ops1, typename Ts2, typename Ops2>
-struct exprmerge<expr<Ts1,Ops1>,expr<Ts2,Ops2>> {
+struct exprunion<expr<Ts1,Ops1>,expr<Ts2,Ops2>> {
 	using type = expr<variantunion_t<unpackto_t<variant,Ts1>,
 		 					unpackto_t<variant,Ts2>>,
 				variantunion_t<unpackto_t<variant,Ops1>,
@@ -79,8 +77,7 @@ struct exprmerge<expr<Ts1,Ops1>,expr<Ts2,Ops2>> {
 };
 
 template<typename E1, typename E2>
-using exprmerge_t = typename exprmerge<E1,E2>::type;
-*/
+using exprunion_t = typename exprunion<E1,E2>::type;
 
 template<typename VT, typename OP, typename ...Args>
 VT evalopdispatch(const OP &o, Args &&args) {
