@@ -49,15 +49,15 @@ std::string write(opbinarychain<BASEOP,leftassoc>,
 	if (subst.size()<=2) return write(BASEOP(),subst);
 	int myprec = precidence(BASEOP());
 	if (leftassoc) {
-		ret = write(BASEOP(),vpsi{subst[0],subst[1]});
+		std::string ret = write(BASEOP(),vpsi{subst[0],subst[1]});
 		for(int i=2;i<subst.size();i++)
-			ret = write(BASEOP(),vpsi{make_pair(ret,myprec),subst[i]});
+			ret += write(BASEOP(),vpsi{make_pair(ret,myprec),subst[i]});
 		return ret;
 	} else {
 		int i=subst.size()-1;
-		ret = write(BASEOP(),vpsi{subst[i-1],subst[i]});
+		std::string ret = write(BASEOP(),vpsi{subst[i-1],subst[i]});
 		for(i-=2;i>=0;i++)
-			ret = write(BASEOP(),vpsi{subst[i],make_pair(ret,myprec)});
+			ret += write(BASEOP(),vpsi{subst[i],make_pair(ret,myprec)});
 		return ret;
 	}
 }
@@ -97,7 +97,7 @@ T evalop(opbinarychain<BASEOP,false>, const std::vector<T> &vs) {
 	BASEOP bop();
 	std::size_t i=vs.size();
 	T ans = evalopdispatch(bop,vs[i-2],vs[i-1]);
-	for(i-=2;i>0;--i) {
+	for(i-=2;i>0;--i)
 		ans = evalopdispatch(bop,vs[i-1],ans);
 	return ans;
 }
@@ -119,8 +119,16 @@ std::string symbol(evalatop) {
 
 std::string write(evalatop,
 		const std::vector<std::pair<std::string,int>> &subst) {
+	if (subst[1].second>=3)
+		return std::string("(")+subst[1].first+std::string(")")
+			+"|_{"+subst[0].first+"="+subst[2].first+"}";
+	else
+		return subst[1].first
+			+"|_{"+subst[0].first+"="+subst[2].first+"}";
+	/*
 	return putinparen(subst[1].first,subst[1].second>=3)
 		+"|_{"+subst[0].first+"="+subst[2].first+"}";
+	*/
 }
 
 template<typename E>
@@ -129,8 +137,8 @@ auto evalop(evalatop, const E &v, const E &expr, const E &val) {
     // could use substitute (from exprsubst.hpp), but that might
     // create circular dependencies (???)
     return eval(expr.map([v,valval](const E &ex) {
-			    if (ex.sameas(v)) return optional<E>{valval};
-			    return optional<E>{};
+			    if (ex.sameas(v)) return std::optional<E>{valval};
+			    return std::optional<E>{};
 			    }));
 }
 

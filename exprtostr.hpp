@@ -2,27 +2,29 @@
 #define EXPRTOSTR_HPP
 
 #include <string>
+#include <numeric>
 #include "exprbase.hpp"
 #include "typestuff.hpp"
 
 template<typename E>
 std::string tostring(const E &e) {
-	return e.fold([](const leaf &l) {
+	return e.fold([](const auto &l) {
 			if (istype<var>(l))
 				return std::make_pair(std::get<var>(l)->name,0);
 			if (istype<noexprT>(l))
 				return std::make_pair(std::string(""),0);
-			return std::visitor([](auto &&a) -> std::string {
+			return std::visit([](auto &&a) -> std::string {
 					return std::to_string(std::forward<decltype(a)>(a));
 					}, l);
 			},
-			[](const op &o, const std::vector<std::pair<std::string,int>> &ch) {
+			[](const auto &o, const std::vector<std::pair<std::string,int>> &ch) {
 				return std::make_pair(write(o,ch),precidence(o));
 			}
 	).first;
 }
 
-std::string draw(const expr &e) {
+template<typename E>
+std::string draw(const E &e) {
 	struct retT {
 		std::vector<std::string> before,after;
 		std::string at;
@@ -39,16 +41,16 @@ std::string draw(const expr &e) {
 		}
 	};
 
-	auto lines = e.fold([](const leaf &l) {
+	auto lines = e.fold([](const auto &l) {
 			if (istype<var>(l))
 				return std::get<var>(l)->name+"\n";
 			if (istype<noexprT>(l))
 				return std::make_pair(std::string("\n"),0);
-			return std::visitor([](auto &&a) -> std::string {
+			return std::visit([](auto &&a) -> std::string {
 				return std::to_string(std::forward<decltype(a)>(a))+"\n";
 				}, l);
 			},
-			[](const op &o, const std::vector<retT> &ch) {
+			[](const auto &o, const std::vector<retT> &ch) {
 				auto sym = symbol(o);
 				if (ch.empty()) return retT(sym);
 				retT ret("");

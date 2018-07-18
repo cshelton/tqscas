@@ -145,7 +145,7 @@ struct polyrewrite : public rewriterule {
 
 
 	virtual ruleptr clone() const { return std::make_shared<rewriterule>(*this); }
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
 		auto &ch = e.children();
 		if (isop(e,powerop)) {
@@ -154,13 +154,13 @@ struct polyrewrite : public rewriterule {
 			auto &pch = ch0.children();
 			if (pch.size()==2) {
 				if (!isconstexpr(ch[1],v)) return {};
-				return optional<expr>{in_place,polyop,pch[0],pow(pch[1],ch[1])};
+				return std::optional<expr>{in_place,polyop,pch[0],pow(pch[1],ch[1])};
 			}
 		     if (!isconst(ch[1])
 				|| getconstany(ch[1]).type()!=typeid(scalarreal)) return {};
 			scalarreal i = getconst<scalarreal>(ch[1]);
 			if (!i.isint() || i<0) return {};
-			return optional<expr>{in_place,polyraise(ch0,i.asint())};
+			return std::optional<expr>{in_place,polyraise(ch0,i.asint())};
 		}
 		if (isop(e,pluschain)) {
 			bool anypoly = false;
@@ -174,7 +174,7 @@ struct polyrewrite : public rewriterule {
 			expr ret = polyadd(topoly(ch[0]),topoly(ch[1]));
 			for(int i=2;i<ch.size();i++)
 				ret = polyadd(ret,topoly(ch[i]));
-			return optional<expr>{in_place,std::move(ret)};
+			return std::optional<expr>{in_place,std::move(ret)};
 		}
 		if (isop(e,multiplieschain)) {
 			bool anypoly = false;
@@ -188,7 +188,7 @@ struct polyrewrite : public rewriterule {
 			expr ret = polymult(topoly(ch[0]),topoly(ch[1]));
 			for(int i=2;i<ch.size();i++)
 				ret = polymult(ret,topoly(ch[i]));
-			return optional<expr>{in_place,std::move(ret)};
+			return std::optional<expr>{in_place,std::move(ret)};
 		}
 		return {};
 	}
@@ -230,7 +230,7 @@ bool polyisint(const expr &e) {
 	return true;
 }
 
-optional<expr> topoly(const expr &e, const expr &x) {
+std::optional<expr> topoly(const expr &e, const expr &x) {
 	assert(isvar(x));
 	ruleset rs = basicscalarrules;
 	auto v = getvar(x);
@@ -239,14 +239,14 @@ optional<expr> topoly(const expr &e, const expr &x) {
 	rs.rules.emplace_back(polyrr);
 	/*
 	auto re = e.map([v,x](const expr &e) {
-			if (isconstexpr(e,v)) return optional<expr>{in_place,polyop,x,e};
-			if (e==x) return optional<expr>{in_place,polyop,x,scalar(0),scalar(1)};
-			return optional<expr>{};
+			if (isconstexpr(e,v)) return std::optional<expr>{in_place,polyop,x,e};
+			if (e==x) return std::optional<expr>{in_place,polyop,x,scalar(0),scalar(1)};
+			return std::optional<expr>{};
 			});
 	expr pe = rs.rewrite(re);
 			*/
 	expr pe = rs.rewrite(e);
-	if (polyrr->ispoly(pe)) return optional<expr>{in_place,polyrr->topoly(pe)};
+	if (polyrr->ispoly(pe)) return std::optional<expr>{in_place,polyrr->topoly(pe)};
 	return {};
 }
 

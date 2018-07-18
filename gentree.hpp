@@ -2,7 +2,7 @@
 #define GENTREE_HPP
 
 #include <memory>
-#include <variant.hpp>
+#include <variant>
 #include <vector>
 #include <utility>
 #include <iostream>

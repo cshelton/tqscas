@@ -9,7 +9,7 @@
 
 template<typename E>
 struct matcherbase {
-	virtual opexprmap match(const E &e,
+	virtual optexprmap<E> match(const E &e,
 			const std::vector<E> &matchch) const {
 		return {};
 	}
@@ -27,9 +27,9 @@ using exprmerge = exprunion_t<E,
 
 template<typename E>
 struct matchany : public matcherbase<E> {
-	virtual opexprmap match(const E &e,
+	virtual optexprmap<E> match(const E &e,
 			const std::vector<E> ) const {
-		return opexprmap{in_place};
+		return optexprmap<E>{std::in_place};
 	}
 	virtual std::string name() const {
 		return "[E]";
@@ -38,9 +38,9 @@ struct matchany : public matcherbase<E> {
 
 template<typename E>
 struct matchvar : public matchbase<E> {
-	virtual opexprmap match(const E &e,
+	virtual optexprmap<E> match(const E &e,
 			const std::vector<E> ) const {
-		if (isvar(e)) return opexprmap{in_place};
+		if (isvar(e)) return optexprmap<E>{std::in_place};
 		else return {};
 	}
 	virtual std::string name() const {
@@ -50,9 +50,9 @@ struct matchvar : public matchbase<E> {
 
 template<typename E>
 struct matchconst : public matcherbase<E> {
-	virtual opexprmap match(const E &e,
+	virtual optexprmap<E> match(const E &e,
 			const std::vector<E> ) const {
-		if (isconst(e)) return opexprmap{in_place};
+		if (isconst(e)) return optexprmap<E>{std::in_place};
 		else return {};
 	}
 	virtual std::string name() const {
@@ -64,11 +64,11 @@ template<typename E>
 struct matchconstwrt : public matcherbase<E> {
 	optional<vset> vars;
 	matchconstwrt() : vars{} {};
-	matchconstwrt(vset vs) : vars{in_place,std::move(vs)} {}
+	matchconstwrt(vset vs) : vars{std::in_place,std::move(vs)} {}
 
-	virtual opexprmap match(const E &e,
+	virtual optexprmap<E> match(const E &e,
 			const std::vector<E> ) const {
-		return isconstexpr(e,vars) ? opexprmap{in_place} : opexprmap{};
+		return isconstexpr(e,vars) ? optexprmap<E>{std::in_place} : optexprmap<E>{};
 	}
 	virtual std::string name() const {
 		return "[K]";
@@ -79,11 +79,11 @@ template<typename E>
 struct matchnonconstwrt : public matcherbase<E> {
 	optional<vset> vars;
 	matchnonconstwrt() : vars{} {};
-	matchnonconstwrt(vset vs) : vars{in_place,std::move(vs)} {}
+	matchnonconstwrt(vset vs) : vars{std::in_place,std::move(vs)} {}
 
-	virtual opexprmap match(const E &e,
+	virtual optexprmap<E> match(const E &e,
 			const std::vector<E> ) const {
-		return isnonconstexpr(e,vars) ? opexprmap{in_place} : opexprmap{};
+		return isnonconstexpr(e,vars) ? optexprmap<E>{std::in_place} : optexprmap<E>{};
 	}
 
 	virtual std::string name() const {
@@ -99,21 +99,26 @@ matchleaf makematchleaf(As &&...args) {
 }
 
 
-// TODO: continue here... need std::variant information to
-// figure out how to match types (if one is opbinarychain<> of the other)
 template<typename E>
 bool opsmatch(const E &e1, const E &e2) {
 	if (e1.isleaf() || e2.isleaf()) return false;
 	auto n1 = e1.asnode();
 	auto n2 = e2.asnode();
-	std::shared_ptr<opchain> c1 = std::dynamic_pointer_cast<opchain>(n1);
-	std::shared_ptr<opchain> c2 = std::dynamic_pointer_cast<opchain>(n2);
-	if (c1) n1 = c1->baseop;
-	if (c2) n2 = c2->baseop;
-	return n1==n2;
+
+	template<typename T>
+	using chaintrue = opbinarychain<T,true>;
+	template<typename T>
+	using chainfalse = opbinarychain<T,false>;
+
+	return sametype(n1,n2) || 
+		sametypewrap<chaintrue>(n1,n2) ||
+		sametypewrap<chaintrue>(n2,n1) ||
+		sametypewrap<chainfalse>(n1,n2) ||
+		sametypewrap<chainfalse>(n2,n1);
 }
 
-bool equiv(const expr &a, const expr &b, vmap &m) {
+template<typename E>
+bool equiv(const E &a, const E &b, vmap &m) {
 	if (!(a.isleaf()==b.isleaf())) return false;
 	if (a.isleaf()) {
 		if (isvar(a) && isvar(b)) {
@@ -126,19 +131,23 @@ bool equiv(const expr &a, const expr &b, vmap &m) {
 	auto &ach = a.children();
 	auto &bch = b.children();
 	if (ach.size()!=bch.size()) return false;
-	if (isop<scopeinfo>(a)) m.emplace(getvar(bch[0]), getvar(ach[0]));
+	if (isderivtype<scopeop>(a.asnode()))
+		m.emplace(getvar(bch[0]), getvar(ach[0]));
 	for(int i=0;i<ach.size();i++)
 		if (!equiv(ach[i],bch[i],m)) return false;
-	if (isop<scopeinfo>(a)) m.erase(getvar(bch[0]));
+	if (isderivtype<scopeop>(a.asnode()))
+		m.erase(getvar(bch[0]));
 	return true;
 }
 
-bool equiv(const expr &a, const expr &b) {
+template<typename E>
+bool equiv(const E &a, const E &b) {
 	vmap m;
 	return equiv(a,b,m);
 }
 
-bool mergemap(exprmap &orig, const exprmap &toadd) {
+template<typename E>
+bool mergemap(exprmap<E> &orig, const exprmap<E> &toadd) {
 	for(auto &p : toadd) {
 		auto loc = orig.emplace(p);
 		if (!loc.second && !equiv(loc.first->second,p.second)) return false;
@@ -146,12 +155,14 @@ bool mergemap(exprmap &orig, const exprmap &toadd) {
 	return true;
 }
 
-opexprmap match(const expr &e, const expr &pat) {
+template<typename E>
+optexprmap<E> match(const E &e, const E &pat) {
 	if (pat.isleaf()) {
 		auto patleaf = pat.asleaf();
+		if (istype<matchleaf>
 		if (patleaf.type()==typeid(matchleaf))
 			return MYany_cast<matchleaf>(patleaf)->match(e);
-		if (e.sameas(pat)) return opexprmap{in_place};
+		if (e.sameas(pat)) return optexprmap<E>{std::in_place};
 		return {};
 	} else {
 		std::shared_ptr<matchop> mop
@@ -160,12 +171,12 @@ opexprmap match(const expr &e, const expr &pat) {
 		if (!opsmatch(e,pat)
 			|| e.children().size() != pat.children().size())
 				return {};
-		exprmap retmap;
+		exprmap<E> retmap;
 		for(int i=0;i<pat.children().size();i++) {
 			auto r = match(e.children()[i],pat.children()[i]);
 			if (!r || !mergemap(retmap,*r)) return {};
 		}
-		return opexprmap{in_place,retmap};
+		return optexprmap<E>{std::in_place,retmap};
 	}
 }
 
@@ -175,7 +186,7 @@ struct matchlabelop : public matchop {
 	matchlabelop(int num) : matchop(1,std::string("#")+std::to_string(num),
 				false,false,10), lnum(num) {}
 
-	virtual opexprmap match(const expr &e,
+	virtual optexprmap<E> match(const expr &e,
 			const std::vector<expr> &matchch) const {
 		auto ret = ::match(e,matchch[0]);
 		if (ret) ret->emplace(lnum,e);
@@ -211,14 +222,14 @@ struct matchmodop : public matchop {
 struct matchremainderop : public matchmodop {
 	matchremainderop(op orig) : matchmodop(orig,"R") {}
 
-	virtual opexprmap match(const expr &e,
+	virtual optexprmap<E> match(const expr &e,
 			const std::vector<expr> &matchch) const {
 		expr me{o,matchch};
 		if (!opsmatch(e,me)) return {};
 		auto ech = e.children();
 		if (ech.size()<matchch.size()) return {};
 		if (ech.size()==matchch.size()) return ::match(e,me);
-		exprmap retmap;
+		exprmap<E> retmap;
 		for(int i=0;i<matchch.size()-1;i++) {
 			auto r = ::match(ech[i],matchch[i]);
 			if (!r || !mergemap(retmap,*r)) return {};
@@ -228,14 +239,14 @@ struct matchremainderop : public matchmodop {
 			lastch.emplace_back(ech[i]);
 		auto r = ::match(expr{e.asnode(),lastch},matchch.back());
 		if (!r || !mergemap(retmap,*r)) return {};
-		return opexprmap{in_place,retmap};
+		return optexprmap<E>{std::in_place,retmap};
 	}
 };
 
 struct matchassocop : public matchmodop {
 	matchassocop(op orig) : matchmodop(orig,"A") {}
 
-	virtual opexprmap match(const expr &e,
+	virtual optexprmap<E> match(const expr &e,
 			const std::vector<expr> &matchch) const {
 		if (e.isleaf() || e.children().size()<2)
 			return ::match(e,expr{o,matchch});

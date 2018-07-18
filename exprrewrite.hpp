@@ -16,7 +16,7 @@ using ruleptr = std::shared_ptr<rewriterule>;
 
 
 struct rewriterule {
-	virtual optional<expr> apply(const expr &e) const { return {}; }
+	virtual std::optional<expr> apply(const expr &e) const { return {}; }
 	virtual void setvars(const vset &v) {}
 	virtual ruleptr clone() const { return std::make_shared<rewriterule>(*this); }
 };
@@ -66,11 +66,11 @@ struct ruleset {
 	}
 
 	template<typename T>
-	optional<expr> runrulesto(const expr &e, int n, T &cache) const {
+	std::optional<expr> runrulesto(const expr &e, int n, T &cache) const {
 		auto loc = cache.find(e);
 		if (loc!=cache.end() && loc->second>=n) return {};
 		if (n==0) return {};
-		optional<expr> ret{};
+		std::optional<expr> ret{};
 		bool change=true;
 		while(change) {
 			change = false;
@@ -91,7 +91,7 @@ struct ruleset {
 					} else if (!newch.empty()) newch.emplace_back(ch[i]);
 				}
 				if (!newch.empty()) {
-					ret = optional<expr>{in_place,ret.value_or(e).asnode(),newch};
+					ret = std::optional<expr>{in_place,ret.value_or(e).asnode(),newch};
 					change = true;
 				}
 			}
@@ -131,10 +131,10 @@ struct ruleset {
 /*
 
 
-optional<expr> runrules(const expr &e, const std::vector<ruleptr> &rules) {
+std::optional<expr> runrules(const expr &e, const std::vector<ruleptr> &rules) {
 	bool done=false;
 	bool ret = false;
-	optional<expr> rete;
+	std::optional<expr> rete;
 	int i=0;
 	for(auto &r : rules) {
 		if (auto newe = r->apply(rete.value_or(e))) {
@@ -155,9 +155,9 @@ optional<expr> runrules(const expr &e, const std::vector<ruleptr> &rules) {
 }
 
 
-optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules);
+std::optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules);
 
-optional<expr> rewrite1(const expr &e, const std::vector<ruleptr> &rules) {
+std::optional<expr> rewrite1(const expr &e, const std::vector<ruleptr> &rules) {
 	if (!e.isleaf()) {
 		std::vector<expr> ch = e.children();
 		bool changed = false;
@@ -178,8 +178,8 @@ optional<expr> rewrite1(const expr &e, const std::vector<ruleptr> &rules) {
 	return runrules(e,rules);
 }
 
-optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules) {
-	optional<expr> rete = rewrite1(e,rules);
+std::optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules) {
+	std::optional<expr> rete = rewrite1(e,rules);
 	if (!rete) return {};
 	while(true) {
 		auto newr = rewrite1(*rete,rules);
@@ -197,8 +197,8 @@ optional<expr> rewritemaybe(const expr &e, const std::vector<ruleptr> &rules) {
 }
 
 template<typename F>
-optional<expr> runcomplete(const expr &e, const std::vector<ruleptr> &rules, F f) {
-	optional<expr> ret = f(e,rules);
+std::optional<expr> runcomplete(const expr &e, const std::vector<ruleptr> &rules, F f) {
+	std::optional<expr> ret = f(e,rules);
 	if (!ret) return ret;
 	while(1) {
 		auto newe = f(*ret,rules);
@@ -207,18 +207,18 @@ optional<expr> runcomplete(const expr &e, const std::vector<ruleptr> &rules, F f
 	}
 }
 
-optional<expr> runallrules(const expr &e, const std::vector<ruleptr> &rules) {
+std::optional<expr> runallrules(const expr &e, const std::vector<ruleptr> &rules) {
 	return runcomplete(e,rules,runrules);
 }
 
-optional<expr> runtree(const expr &e, const std::vector<ruleptr> &rules) {
+std::optional<expr> runtree(const expr &e, const std::vector<ruleptr> &rules) {
 	auto ret = runallrules(e,rules);
 	if (!ret) return {};
-	return optional<expr>{in_place,
+	return std::optional<expr>{in_place,
 			ret->map([&rules](const expr &ex) { return runtree(ex,rules); })};
 }
 
-optional<expr> runalltree(const expr &e, const std::vector<ruleptr> &rules) {
+std::optional<expr> runalltree(const expr &e, const std::vector<ruleptr> &rules) {
 	return runcomplete(e,rules,runtree);
 }
 */
@@ -248,9 +248,9 @@ struct optochain : public rewriterule {
 
 	virtual ruleptr clone() const { return std::make_shared<optochain>(*this); }
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (isop(e,cop->baseop))
-			return optional<expr>{in_place,cop,e.children()};
+			return std::optional<expr>{in_place,cop,e.children()};
 		return {};
 	}
 };
@@ -264,13 +264,13 @@ struct collapsechain : public rewriterule {
 
 	virtual ruleptr clone() const { return std::make_shared<collapsechain>(*this); }
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
 		auto &n = e.asnode();
 		if (n!=cop) return {};
 		auto &ch = e.children();
 		if (ch.size()==1)
-			return optional<expr>{in_place,ch[0]};
+			return std::optional<expr>{in_place,ch[0]};
 		int nnewch = 0;
 		bool cont=false;
 		for(auto &c : ch) 
@@ -289,7 +289,7 @@ struct collapsechain : public rewriterule {
 					newch.emplace_back(c2);
 			}
 		}
-		return optional<expr>{in_place,cop,newch};
+		return std::optional<expr>{in_place,cop,newch};
 	}
 };
 
@@ -304,23 +304,23 @@ struct matchrewrite : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<matchrewrite>(*this); }
 
 	virtual void setvars(const vset &v) {
-		optional<expr> nsearch = search.mapmaybe([v](const expr &e) {
+		std::optional<expr> nsearch = search.mapmaybe([v](const expr &e) {
 				if (!e.isleaf() ||
-					e.asleaf().type()!=typeid(matchleaf)) return optional<expr>{};
+					e.asleaf().type()!=typeid(matchleaf)) return std::optional<expr>{};
 				auto ml = MYany_cast<matchleaf>(e.asleaf());
 				auto asconst = std::dynamic_pointer_cast<matchconstwrt>(ml);
 				if (asconst)
-					return optional<expr>{in_place,makematchleaf<matchconstwrt>(v)};
+					return std::optional<expr>{in_place,makematchleaf<matchconstwrt>(v)};
 				auto asnonconst = std::dynamic_pointer_cast<matchnonconstwrt>(ml);
 				if (asnonconst)
-					return optional<expr>{in_place,makematchleaf<matchnonconstwrt>(v)};
-				return optional<expr>{};
+					return std::optional<expr>{in_place,makematchleaf<matchnonconstwrt>(v)};
+				return std::optional<expr>{};
 			});
 		if (nsearch) search = *nsearch;
 	}
 
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		auto m = match(e,search);
 		if (m) return substitute(replacelocal(replace),*m);
 		else return {};
@@ -339,7 +339,7 @@ struct matchrewritecond : public matchrewrite {
 
 	virtual ruleptr clone() const { return std::make_shared<matchrewritecond>(*this); }
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		auto m = match(e,search);
 		if (m && condition(*m)) return substitute(replace,*m);
 		else return {};
@@ -360,10 +360,10 @@ ruleptr SR(E1 &&pattern, E2 &&newexp, F condition) {
 
 struct consteval : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<consteval>(*this); }
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
 		if (!e.asnode()->caneval()) return {};
-		if (isconstexpr(e)) return optional<expr>{in_place,
+		if (isconstexpr(e)) return std::optional<expr>{in_place,
 						newconst(e.asnode()->eval(e.children()))};
 		return {};
 	}
@@ -371,7 +371,7 @@ struct consteval : public rewriterule {
 
 struct trivialconsteval : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<trivialconsteval>(*this); }
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (e.isleaf()) return {};
 		auto &ch = e.children();
 		for(auto &c : ch) 
@@ -380,7 +380,7 @@ struct trivialconsteval : public rewriterule {
 		subexpr.reserve(ch.size());
 		for(auto &c : ch)
 			subexpr.emplace_back(MYany_cast<constval>(c.asleaf()).v);
-		return optional<expr>{in_place,newconst(e.asnode()->opeval(subexpr))};
+		return std::optional<expr>{in_place,newconst(e.asnode()->opeval(subexpr))};
 	}
 };
 
@@ -390,7 +390,7 @@ struct constchaineval : public rewriterule {
 
 	constchaineval(std::shared_ptr<opchain> chainop) : cop(chainop) {}
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (!isop(e,cop)) return {};
 		auto &ch = e.children();
 		int ai=-1,bi=-1;
@@ -405,14 +405,14 @@ struct constchaineval : public rewriterule {
 		auto newch(ch);
 		newch[ai] = newconst(cop->baseop->opeval(getconstany(ch[ai]),getconstany(ch[bi])));
 		newch.erase(newch.begin()+bi);
-		return optional<expr>{in_place,e.asnode(),newch};
+		return std::optional<expr>{in_place,e.asnode(),newch};
 	}
 };
 
 
 struct scopeeval : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<scopeeval>(*this); }
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (!isop<scopeinfo>(e)) return {};
 		auto se = std::dynamic_pointer_cast<scopeinfo>(e.asnode());
 		auto &ch = e.children();
@@ -421,7 +421,7 @@ struct scopeeval : public rewriterule {
 				return substitute(ch[1],ch[0],ch[2]);
 			else return {};
 		//}
-		//return optional<expr>{in_place,newconst(se->eval(ch))};
+		//return std::optional<expr>{in_place,newconst(se->eval(ch))};
 	}
 };
 

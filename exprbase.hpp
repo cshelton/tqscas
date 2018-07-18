@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <map>
 #include <cmath>
 
 struct noexprT {};
@@ -39,55 +40,76 @@ template<typename ...Ts> // place constval first so that its index (which
 using leaf = std::variant<constval<Ts...>,noexprT,var>;
 
 template<typename ...Ts>
-using node = std::variant<std::monostate,...Ts>;
+using node = std::variant<std::monostate,Ts...>;
 
 // Ts is a variant or tuple that lists the possible constant types
 // Ops is a variant or tuple that lists the possible operators
+/*
 template<typename Ts, typename Ops>
 using expr = gentree<unpackto_t<leaf,Ts>, unpackto_t<node,Ops>>;
+*/
+
+template<typename Ts, typename Ops>
+struct expr : public gentree<unpackto_t<leaf,Ts>,unpackto_t<node,Ops>> {
+	using valuetype = unpackto_t<std::variant,Ts>;
+	using optype = unpackto_t<std::variant,Ops>;
+};
 
 template<typename E>
-using exprmap = std::map<int,E>
+using exprmap = std::map<int,E>;
 template<typename E>
-using opexprmap = std::optional<exprmap<E>>
+using optexprmap = std::optional<exprmap<E>>;
 
 template<typename T>
 struct expraccess {};
 
+/*
 template<typename Ts, typename Ops>
-struct expraccess<expr<Ts,Ops> {
+struct expraccess<expr<Ts,Ops>> {
 	using valuetype = unpackto_t<variant,Ts>;
 	using optype = unpackto_t<variant,Ops>;
+};
+
+template<typename T1, typename T2> // assumes E is constructed as expr<X,Y>
+struct expraccess<typename gentree<T1,T2>> {
+	using valuetype = unpackto_t<std::variant,variantfirst_t<T1>>;
+	using optype = unpackto_t<std::variant,variantfirst_t<T2>>;
 };
 
 template<typename E>
 using exprvalues = typename expraccess<E>::valuetype;
 template<typename E>
 using exprops = typename expraccess<E>::optype;
+*/
+
+template<typename E>
+using exprvalues = typename E::valuetype;
+template<typename E>
+using exprops = typename E::optype;
 
 template<typename,typename>
 struct exprunion{};
 
 template<typename Ts1, typename Ops1, typename Ts2, typename Ops2>
 struct exprunion<expr<Ts1,Ops1>,expr<Ts2,Ops2>> {
-	using type = expr<variantunion_t<unpackto_t<variant,Ts1>,
-		 					unpackto_t<variant,Ts2>>,
-				variantunion_t<unpackto_t<variant,Ops1>,
-							unpackto_t<variant,Ops2>>>;
+	using type = expr<variantunion_t<unpackto_t<std::variant,Ts1>,
+		 					unpackto_t<std::variant,Ts2>>,
+				variantunion_t<unpackto_t<std::variant,Ops1>,
+							unpackto_t<std::variant,Ops2>>>;
 };
 
 template<typename E1, typename E2>
 using exprunion_t = typename exprunion<E1,E2>::type;
 
 template<typename VT, typename OP, typename ...Args>
-VT evalopdispatch(const OP &o, Args &&args) {
-	return std::visitor([&o](auto... params) -> VT {
+VT evalopdispatch(const OP &o, Args &&...args) {
+	return std::visit([&o](auto... params) -> VT {
 			return evalop(o,std::forward<decltype(params)>(params)...);
 		}, std::forward<Args>(args)...);
 }
 
 // assumes that the types are closed under the operations!
-template<E>
+template<typename E>
 exprvalues<E> eval(const E &e) {
 	using rett = exprvalues<E>;
 	if (e.isleaf()) {
@@ -95,7 +117,7 @@ exprvalues<E> eval(const E &e) {
 		return {};
 	} else {
 		// support up to 4-arg hetrogeneous operators:
-		const exprops &op = e.asnode();
+		const exprops<E> &op = e.asnode();
 		switch(e.children.size()) {
 			case 0: return evalopdispatch<rett>(op);
 			case 1: return evalopdispatch<rett>(op,eval(e.children[0]));
@@ -116,7 +138,7 @@ exprvalues<E> eval(const E &e) {
 						// to avoid memory alloc
 				for(auto &&c : e.children())
 					ceval.emplace_back(eval(c));
-				return std::visitor([&ceval](auto &&op) -> rett {
+				return std::visit([&ceval](auto &&op) -> rett {
 						return evalop(std::forward<decltype(op)>(op),
 								ceval); },op);
 		    }
@@ -133,7 +155,7 @@ namespace std {
 		}
 	};
 	template<typename Ts, typename Ops> struct hash<expr<Ts,Ops>> {
-		typedef expr argument_type;
+		typedef expr<Ts,Ops> argument_type;
 		typedef std::size_t result_type;
 		result_type operator()(argument_type const &s) const {
 			return s.ptrhash();
@@ -210,7 +232,8 @@ bool isconst(const E &e) {
 	return e.isleaf() && e.asleaf().index()==0;
 }
 
-bool isvar(const expr &e) {
+template<typename E>
+bool isvar(const E &e) {
 	return e.isleaf() && std::holds_alternative<var>(e.asleaf());
 }
 
@@ -224,7 +247,7 @@ struct scopeop {}; // base class for any operator who first
 // do not call!
 template<typename E>
 bool isconstexpr1(const E &e,
-		const optional<vset> &vars,
+		const std::optional<vset> &vars,
 		vset &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return true;
@@ -241,7 +264,7 @@ bool isconstexpr1(const E &e,
 			// no need to undo changes to exceptvars, because 
 			// we will return false all the way back to the top
 			if (!isconstexpr1(c,vars,exceptvars)) return false;
-		if (n) {
+		if (isderivop<scopeop>(e)) {
 			auto v = getvar(e.children()[0]);
 			exceptvars.erase(v);
 		}
@@ -251,7 +274,7 @@ bool isconstexpr1(const E &e,
 
 // vars == empty => "all vars"
 template<typename E>
-bool isconstexpr(const E &e, const optional<vset> &vars = {}) {
+bool isconstexpr(const E &e, const std::optional<vset> &vars = {}) {
 	vset ex;
 	return isconstexpr1(e,vars,ex);
 }
@@ -259,14 +282,14 @@ bool isconstexpr(const E &e, const optional<vset> &vars = {}) {
 template<typename E>
 bool isconstexpr(const E &e, const var &v) {
     vset ex;
-    optional<vset> vars{in_place,{v}};
+    std::optional<vset> vars{std::in_place,{v}};
     return isconstexpr1(e,vars,ex);
 }
 
 template<typename E>
 bool isconstexprexcept(const E &e, const var &v) {
     vset ex{v};
-    optional<vset> vars{};
+    std::optional<vset> vars{};
     return isconstexpr1(e,vars,ex);
 }
 	    
@@ -274,7 +297,7 @@ bool isconstexprexcept(const E &e, const var &v) {
 // do not call!
 template<typename E>
 bool isnonconstexpr1(const E &e,
-		const optional<vset> &vars,
+		const std::optional<vset> &vars,
 		vset &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return false;
@@ -292,7 +315,7 @@ bool isnonconstexpr1(const E &e,
 			// no need to undo changes to exceptvars, because 
 			// we will return true all the way back to the top
 			if (isnonconstexpr1(c,vars,exceptvars)) return true;
-		if (n) {
+		if (isderivop<scopeop>(e)) {
 			auto v = getvar(e.children()[0]);
 			exceptvars.erase(v);
 		}
@@ -303,7 +326,7 @@ bool isnonconstexpr1(const E &e,
 // vars == empty => "all vars"
 template<typename E>
 bool isnonconstexpr(const E &e,
-		const optional<vset> &vars = {}) {
+		const std::optional<vset> &vars = {}) {
 	vset ex;
 	return isnonconstexpr1(e,vars,ex);
 }

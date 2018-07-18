@@ -10,8 +10,8 @@
 template<typename E>
 E substitute(const E &e, const E &x, const E &v) {
 	return e.map([x,v](const E &ex) {
-			if (ex.sameas(x)) return optional<E>{v};
-			return optional<E>{};
+			if (ex.sameas(x)) return std::optional<E>{v};
+			return std::optional<E>{};
 			});
 }
 
@@ -37,8 +37,8 @@ template<typename E>
 E substitute(const E &e, const std::vector<subst<E>> &st) {
 	return e.map([&st](const E &ex) {
 			for(auto &s : st)
-				if (ex.sameas(s.x)) return optional<E>{s.v};
-			return optional<E>{};
+				if (ex.sameas(s.x)) return std::optional<E>{s.v};
+			return std::optional<E>{};
 			});
 };
 
@@ -103,9 +103,9 @@ E substitute(const E &e, const exprmap<E> st) {
 			if (isplaceholder(ex)) {
 				int n = MYany_cast<placeholder>(ex.asleaf()).num;
 				auto l = st.find(n);
-				if (l!=st.end()) return optional<E>{l->second};
+				if (l!=st.end()) return std::optional<E>{l->second};
 			}
-			return optional<E>{};
+			return std::optional<E>{};
 		});
 }
 
@@ -116,8 +116,8 @@ E replacelocal(const E &e) {
 	return e.map([](const E &ex) {
 			if (!isop<scopeinfo>(ex) ||
 			    isplaceholder(ex.children()[0]))
-				return optional<E>{};
-			return optional<E>{in_place,substitute(ex,ex.children()[0],
+				return std::optional<E>{};
+			return std::optional<E>{in_place,substitute(ex,ex.children()[0],
 					newvar(getvartype(ex.children()[0]));
 					)};
 		});

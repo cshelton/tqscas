@@ -1,5 +1,5 @@
 #ifndef TYPESTUFF_H
-#define TYPESTUFF_h
+#define TYPESTUFF_H
 
 #include <optional>
 #include <variant>
@@ -7,12 +7,27 @@
 #include <typeinfo>
 #include <typeindex>
 
+template<typename T>
+struct variantfirst {};
+
+template<typename T, typename... Ts>
+struct variantfirst<std::variant<T,Ts...>> {
+	using type = T;
+};
+
+template<typename T>
+using variantfirst_t = typename variantfirst<T>::type;
+
+// note: not needed, std::holds_alternative does exactly this!
 template<typename T,typename ...Ts>
 constexpr bool istype(const std::variant<Ts...> &v) {
+	return std::holds_alternative<T>(v);
+	/*
 	return std::visit([](auto&&arg) {
 			using A = std::decay_t<decltype(arg)>;
 			return std::is_same_v<T,A>;
 			},v);
+			*/
 }
 
 template<typename T, typename ...Ts>
@@ -25,12 +40,36 @@ constexpr bool isderivtype(const std::variant<Ts...> &v) {
 
 //----
 
+// V1 and V2 should be std::variant<...>
+// checks to see if they are currently holding the same type
+template<typename V1, typename V2>
+constexpr bool sametypes(const V1 &v1, const V2 &v2) {
+	return std::visit([&v2](auto&&arg) {
+				using A = std::decay_t<decltype(arg)>;
+				return istype<A>(v2);
+			},v1);
+}
+
+// same as sametypes above, but
+//   let A1 be type stored in V1
+//   and A2 be type stored in V2
+// checks to see if A1==Tmpl<A2>
+template<template<typename> typename Tmpl, typename V1, typename V2>
+constexpr bool sametypeswrap(const V1 &v1, const V2 &v2) {
+	return std::visit([&v2](auto&&arg) {
+				using A = std::decay_t<decltype(arg)>;
+				return istype<Tmpl<A>>(v2);
+			},v1);
+}
+
+//----
+
 // Does this exist in C++17 -- check
 
 template<typename>
 struct tmplparam{ };
 
-template<template<typename> T, typename TT>
+template<template<typename> typename T, typename TT>
 struct tmplparam<T<TT>> {
 	using type = TT;
 };
