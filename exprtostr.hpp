@@ -121,6 +121,12 @@ std::string writeinplace(O op,
 }
 
 template<typename O>
+std::string writeprefixunary(O op,
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return symbol(op) + putinparen(subst[0].first,subst[0].second>predicence(op));
+}
+
+template<typename O>
 std::string writeasfunc(O op,
 		const std::vector<std::pair<std::string,int>> &subst) {
 	std::string ret = symbol(op) + "(";

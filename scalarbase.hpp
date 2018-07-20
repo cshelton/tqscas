@@ -2,64 +2,123 @@
 #define SCALARBASE_HPP
 
 #include <functional>
-#include "expr.hpp"
+#include "exprbaseops.hpp"
 #include <cmath>
 #include "scalartype.hpp"
 
-expr scalar(double d) {
-	if (std::fmod(d,1.0)==0.0) return newconst(scalarreal{(int)d});
-	return newconst(scalarreal{d});
+template<typename E>
+E scalar(double d) {
+	if (std::fmod(d,1.0)==0.0) return newconst<E>(scalarreal{(int)d});
+	return newconst<E>(scalarreal{d});
 }
 
-expr scalar(int i) {
-	return newconst(scalarreal{i});
+template<typename E>
+E scalar(int i) {
+	return newconst<E>(scalarreal{i});
 }
 
-expr scalar(scalarreal s) {
-	return newconst(scalarreal{std::move(s)});
+template<typename E>
+E scalar(scalarreal s) {
+	return newconst<E>(scalarreal{std::move(s)});
 }
 
+/*
 // shorter to write...
 template<typename T, typename... Xs> auto toptr(Xs &&...xs) {
 	return std::make_shared<T>(std::forward<Xs>(xs)...);
 }
 
 template<typename T> auto toptr() { return std::make_shared<T>(); }
+*/
 
-const op plusop = toptr<binopinfo<std::plus<scalarreal>,scalarreal,scalarreal>>
-			(std::string("+"),true,true,6);
-const op minusop = toptr<binopinfo<std::minus<scalarreal>,scalarreal,scalarreal>>
-			(std::string("-"),true,true,6);
-const op negateop = toptr<uniopinfo<std::negate<scalarreal>,scalarreal>>
-			(std::string("-"),false,false,3);
-const op multipliesop = toptr<binopinfo<std::multiplies<scalarreal>,scalarreal,scalarreal>>
-			(std::string("*"),true,true,4);
-const op dividesop = toptr<binopinfo<std::divides<scalarreal>,scalarreal,scalarreal>>
-			(std::string("/"),true,true,4);
-
-const std::shared_ptr<opchain> pluschain = std::make_shared<opchain>(plusop);
-const std::shared_ptr<opchain> multiplieschain = std::make_shared<opchain>(multipliesop);
+// ADD
+struct scalaropadd {};
 
 template<typename T>
-struct powerinfo {
-	constexpr T operator()(const T &b, const T &e) const {
-		return pow(b,e);
-	}
-};
+T evalop(const scalaropadd &, const T &a, const T &b) { return a+b; }
+std::string symbol(const scalaropadd &) { return std::string("+"); }
+int precedence(const scalaropadd &) { return 6; }
+std::string write(const scalaropadd &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeinplace(op,subst,true);
+}
 
-const op powerop = toptr<binopinfo<powerinfo<scalarreal>,scalarreal,scalarreal>>
-			(std::string("^"),true,false,2);
+// SUB
+struct scalaropsub {};
 
 template<typename T>
-struct natloginfo {
-	constexpr T operator()(const T &e) const {
-		return log(e);
-	}
-};
+T evalop(const scalaropsub &, const T &a, const T &b) { return a-b; }
+std::string symbol(const scalaropsub &) { return std::string("-"); }
+int precedence(const scalaropsub &) { return 6; }
+std::string write(const scalaropsub &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeinplace(op,subst,true);
+}
 
-const op logop = toptr<uniopinfo<natloginfo<scalarreal>,scalarreal>>
-			(std::string("log"),false,false,5);
+// MULT
+struct scalaropmult {};
 
+template<typename T>
+T evalop(const scalaropmult &, const T &a, const T &b) { return a*b; }
+std::string symbol(const scalaropmult &) { return std::string("*"); }
+int precedence(const scalaropmult &) { return 4; }
+std::string write(const scalaropmult &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeinplace(op,subst,true);
+}
+
+// DIV
+struct scalaropdiv {};
+
+template<typename T>
+T evalop(const scalaropdiv &, const T &a, const T &b) { return a/b; }
+std::string symbol(const scalaropdiv &) { return std::string("/"); }
+int precedence(const scalaropdiv &) { return 4; }
+std::string write(const scalaropdiv &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeinplace(op,subst,true);
+}
+
+// NEG
+struct scalaropneg {};
+
+template<typename T>
+T evalop(const scalaropneg &, const T &a) { return -a; }
+std::string symbol(const scalaropneg &) { return std::string("-"); }
+int precedence(const scalaropneg &) { return 3; }
+std::string write(const scalaropneg &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeprefixunary(op,subst);
+}
+
+// POW
+struct scalaroppow {};
+
+template<typename T>
+T evalop(const scalaroppow &, const T &a, const T &b) { return pow(a,b); }
+std::string symbol(const scalaroppow &) { return std::string("^"); }
+int precedence(const scalaroppow &) { return 4; }
+std::string write(const scalaroppow &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeinplace(op,subst,false);
+}
+
+// LOG
+struct scalaroplog {};
+
+template<typename T>
+T evalop(const scalaropneg &, const T &a) { return log(a); }
+std::string symbol(const scalaropneg &) { return std::string("log"); }
+int precedence(const scalaropneg &) { return 5; }
+std::string write(const scalaropneg &op, 
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return writeasfunc(op,subst);
+}
+
+// chains (addition and multiplication)
+
+using scalaropaddchain = opbinarychain<scalaropadd>;
+using scalaropmultchain = opbinarychain<scalaropmult>;
 
 expr operator+(const expr &e1, const expr &e2) {
 	if (!e1.isleaf() && e1.asnode()==pluschain) {

@@ -18,26 +18,30 @@ struct constval {
 	constval(T val) : v{std::move(val)} {}
 };
 
-// adding type_info instead via a template parameter causes
-// problems in identifying and changing "variables in general"
-// in an expression
+template<typename T>
 struct varinfo {
 	const std::string name;
-	const std::type_info &t;
 
-	varinfo(const std::string &n, const std::type_info &ti) : name(n), t(ti) {}
+	varinfo(const std::string &n) : name(n) {}
 };
 
-struct var : public std::shared_ptr<varinfo> {
-	var(const varinfo &vi) :
-		std::shared_ptr<varinfo>(std::make_shared<varinfo>(vi)) {}
-	var(varinfo &&vi) :
-		std::shared_ptr<varinfo>(std::make_shared<varinfo>(std::move(vi))) {}
+template<typename T>
+struct var : public std::shared_ptr<varinfo<T>> {
+	var(const varinfo<T> &vi) :
+		std::shared_ptr<varinfo<T>>(std::make_shared<varinfo<T>>(vi)) {}
+	var(varinfo<T> &&vi) :
+		std::shared_ptr<varinfo<T>>(std::make_shared<varinfo<T>>(std::move(vi))) {}
 };
+
+template<typename ...Ts>
+using varvar = std::variant<var<Ts>...>;
+
+template<typename E>
+using anyvar = varvar<exprvalues<E>>;
 
 template<typename ...Ts> // place constval first so that its index (which
 			// is hard to find via type) is always 0
-using leaf = std::variant<constval<Ts...>,noexprT,var>;
+using leaf = std::variant<constval<Ts...>,noexprT,var<Ts...>>;
 
 template<typename ...Ts>
 using node = std::variant<std::monostate,Ts...>;
@@ -109,11 +113,12 @@ VT evalopdispatch(const OP &o, Args &&...args) {
 }
 
 // assumes that the types are closed under the operations!
+// (otherwise return type would be different)
 template<typename E>
 exprvalues<E> eval(const E &e) {
 	using rett = exprvalues<E>;
 	if (e.isleaf()) {
-		if (isconst(e)) return std::get<2>(e.asleaf()).v;
+		if (isconst(e)) return std::get<0>(e.asleaf()).v;
 		return {};
 	} else {
 		// support up to 4-arg hetrogeneous operators:
@@ -147,11 +152,21 @@ exprvalues<E> eval(const E &e) {
 }
 
 namespace std { 
-	template<> struct hash<var> {
-		typedef var argument_type;
+	template<typename T> struct hash<var<T>> {
+		typedef var<T> argument_type;
 		typedef std::size_t result_type;
 		result_type operator()(argument_type const &s) const {
-			return std::hash<std::shared_ptr<varinfo>>{}(s);
+			return std::hash<std::shared_ptr<varinfo<T>>>{}(s);
+		}
+	};
+	template<typename T> struct hash<anyvar<T>> {
+		typedef anyvar<T> argument_type;
+		typedef std::size_t result_type;
+		result_type operator()(argument_type const &s) const {
+			return std::visit(
+						[](auto &&s2)
+							{ return std::hash<decltype(s2)>{}(s2); },
+						s);
 		}
 	};
 	template<typename Ts, typename Ops> struct hash<expr<Ts,Ops>> {
@@ -173,43 +188,39 @@ namespace std {
 }
 
 
-template<typename E>
-E newvar(const std::string &name, const std::type_info &ti) {
-	return {var{varinfo(name,ti)}};
-}
-
 template<typename E, typename T>
 E newvar(const std::string &name) {
-	return {var{varinfo(name,typeid(T))}};
+	return {var<T>{varinfo<T>(name)}};
 }
 
 // TODO: remove global (somehow?)
 std::size_t globalvarnum__ = 0;
 
-template<typename E>
-E newvar(const std::type_info &ti) {
-	return newvar<E>(std::string("__")+std::to_string(++globalvarnum__),ti);
-}
-
-template<typename E, typename T>
+template<typename E,typename T>
 E newvar() {
-	return newvar<E>(typeid(T));
+	return newvar<E,T>(std::string("__")+std::to_string(++globalvarnum__));
 }
-
 
 template<typename E, typename T>
 E newconst(const T &v) {
 	return {constval{v}};
 }
 
-template<typename E>
-var getvar(const E &e) {
-	return std::get<var>(e.asleaf());
-}
+template<typename V>
+struct getvarlambda {
+	template<typename T>
+	V operator()(const var<T> &v) {
+		return v;
+	}
+	template<typename T>
+	V operator()(const T &v) {
+		return {};
+	}
+};
 
 template<typename E>
-const std::type_info &getvartype(const E &e) {
-	return getvar(e)->t;
+anyvar<E> getvar(const E &e) {
+	return std::visit(getvarlambda<anyvar<E>>{},e);
 }
 
 template<typename T, typename E>
@@ -237,8 +248,10 @@ bool isvar(const E &e) {
 	return e.isleaf() && std::holds_alternative<var>(e.asleaf());
 }
 
-using vset = std::unordered_set<var>;
-using vmap = std::unordered_map<var,var>;
+template<typename E>
+using vset = std::unordered_set<anyvar<E>>;
+template<typename E>
+using vmap = std::unordered_map<anyvar<E>,anyvar<E>>;
 //using vkmap = std::unordered_map<var,any>;
 
 struct scopeop {}; // base class for any operator who first
@@ -247,12 +260,12 @@ struct scopeop {}; // base class for any operator who first
 // do not call!
 template<typename E>
 bool isconstexpr1(const E &e,
-		const std::optional<vset> &vars,
-		vset &exceptvars) {
+		const std::optional<vset<E>> &vars,
+		vset<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return true;
 		if (!isvar(e)) return false;
-		var v = getvar(e);
+		auto v = getvar(e);
 		return (vars && vars->find(v)==vars->end())
 				|| exceptvars.find(v)!=exceptvars.end();
 	} else {
@@ -274,22 +287,22 @@ bool isconstexpr1(const E &e,
 
 // vars == empty => "all vars"
 template<typename E>
-bool isconstexpr(const E &e, const std::optional<vset> &vars = {}) {
-	vset ex;
+bool isconstexpr(const E &e, const std::optional<vset<E>> &vars = {}) {
+	vset<E> ex;
 	return isconstexpr1(e,vars,ex);
 }
 
 template<typename E>
 bool isconstexpr(const E &e, const var &v) {
-    vset ex;
-    std::optional<vset> vars{std::in_place,{v}};
+    vset<E> ex;
+    std::optional<vset<E>> vars{std::in_place,{v}};
     return isconstexpr1(e,vars,ex);
 }
 
 template<typename E>
 bool isconstexprexcept(const E &e, const var &v) {
-    vset ex{v};
-    std::optional<vset> vars{};
+    vset<E> ex{v};
+    std::optional<vset<E>> vars{};
     return isconstexpr1(e,vars,ex);
 }
 	    
@@ -297,13 +310,13 @@ bool isconstexprexcept(const E &e, const var &v) {
 // do not call!
 template<typename E>
 bool isnonconstexpr1(const E &e,
-		const std::optional<vset> &vars,
-		vset &exceptvars) {
+		const std::optional<vset<E>> &vars,
+		vset<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return false;
 		if (!isvar(e)) return false; // (not sure what to place here...
 						// ... only reason this isn't !isconstexpr
-		var v = getvar(e);
+		auto v = getvar(e);
 		return (!vars || vars->find(v)!=vars->end())
 				&& exceptvars.find(v)==exceptvars.end();
 	} else {
@@ -326,8 +339,8 @@ bool isnonconstexpr1(const E &e,
 // vars == empty => "all vars"
 template<typename E>
 bool isnonconstexpr(const E &e,
-		const std::optional<vset> &vars = {}) {
-	vset ex;
+		const std::optional<vset<E>> &vars = {}) {
+	vset<E> ex;
 	return isnonconstexpr1(e,vars,ex);
 }
 

@@ -24,7 +24,7 @@
 /*
  * One abstract supertype for op defined in exprbase.hpp: scopeop
  *
- * Two others defined here:  opbinarychain and evalatop
+ * Two concrete op types defined here:  opbinarychain and evalatop
  *
  * Anything else is up to the domain
  */
