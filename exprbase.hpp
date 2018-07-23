@@ -9,22 +9,38 @@
 #include <map>
 #include <cmath>
 
+// a type to represent no expression (as a leaf in an expression tree)
 struct noexprT {};
 
-template<typename ...Ts>
+// constval holds a constant (as a leaf in an expression tree)
+template<typename T>
 struct constval {
-	std::variant<Ts...> v;
-	template<typename T>
-	constval(T val) : v{std::move(val)} {}
+	T v;
+	template<typename S>
+	constval(S &&val) : v{std::forward<S>(val)} {}
 };
 
+template<typename> struct isconstvaltype : public std::false_type { };
+template<typename T> struct isconstvaltype<constval<T>> : public std::true_type { };
+template<typename T>
+inline constexpr bool isconstvaltype_v = isconstvaltype<T>::value;
+
+// varinfo is the "name" of a variable (of type T)
 template<typename T>
 struct varinfo {
 	const std::string name;
 
 	varinfo(const std::string &n) : name(n) {}
+	varinfo() : name(std::string("__")+std::to_string(++globalvarnum__)+
+			typeid(T).name()) {}
+
+	private:
+	// TODO: perhaps replace with boost::uuid ??
+	std::size_t globalvarnum__ = 0;
 };
 
+// var holds a variable (by shared_ptr to varinfo) of type T
+// (as a leaf in an expression tree)
 template<typename T>
 struct var : public std::shared_ptr<varinfo<T>> {
 	var(const varinfo<T> &vi) :
@@ -33,30 +49,35 @@ struct var : public std::shared_ptr<varinfo<T>> {
 		std::shared_ptr<varinfo<T>>(std::make_shared<varinfo<T>>(std::move(vi))) {}
 };
 
-template<typename ...Ts>
-using varvar = std::variant<var<Ts>...>;
-
-template<typename E>
-using anyvar = varvar<exprvalues<E>>;
-
-template<typename ...Ts> // place constval first so that its index (which
-			// is hard to find via type) is always 0
-using leaf = std::variant<constval<Ts...>,noexprT,var<Ts...>>;
+template<typename> struct isvartype : public std::false_type { };
+template<typename T> struct isvartype<var<T>> : public std::true_type { };
+template<typename T>
+inline constexpr bool isvartype_v = isvartype<T>::value;
 
 template<typename ...Ts>
-using node = std::variant<std::monostate,Ts...>;
+using leaf = std::variant<noexprT, constval<Ts>..., var<Ts>...>;
 
-// Ts is a variant or tuple that lists the possible constant types
-// Ops is a variant or tuple that lists the possible operators
-/*
-template<typename Ts, typename Ops>
-using expr = gentree<unpackto_t<leaf,Ts>, unpackto_t<node,Ops>>;
-*/
+template<typename ...OPs>
+using node = std::variant<std::monostate,OPs...>;
 
-template<typename Ts, typename Ops>
-struct expr : public gentree<unpackto_t<leaf,Ts>,unpackto_t<node,Ops>> {
-	using valuetype = unpackto_t<std::variant,Ts>;
-	using optype = unpackto_t<std::variant,Ops>;
+// a type to record T without using a value
+// used so that variant<typetype<A>,typetype<B>,typetype<C>>
+// can, at run time, keep track of a type (one of A, B, or C) without a value
+template<typename T>
+struct typetype {};
+
+// An expression!  TV is a variant type containing all of the possible
+template<typename TV, typename OPV>
+struct expr : public gentree<repacknomonoadd_t<leaf,TV>,
+						repacknomonoadd_t<node,OPV>> {
+	using base = gentree<repacknomonoadd_t<leaf,TV>,
+					repacknomonoadd_t<node,OPV>>;
+	using base::base;
+
+	using valuetype = repacknomonoadd_t<std::variant,TV,noexprT>;
+	using valuetypetype = innerwrap_t<typetype,valuetype>;
+	using optype = repack_t<std::variant,OPV>;
+	using anyvartype = innerwrap_t<var,valuetype>;
 };
 
 template<typename E>
@@ -67,43 +88,33 @@ using optexprmap = std::optional<exprmap<E>>;
 template<typename T>
 struct expraccess {};
 
-/*
-template<typename Ts, typename Ops>
-struct expraccess<expr<Ts,Ops>> {
-	using valuetype = unpackto_t<variant,Ts>;
-	using optype = unpackto_t<variant,Ops>;
-};
-
-template<typename T1, typename T2> // assumes E is constructed as expr<X,Y>
-struct expraccess<typename gentree<T1,T2>> {
-	using valuetype = unpackto_t<std::variant,variantfirst_t<T1>>;
-	using optype = unpackto_t<std::variant,variantfirst_t<T2>>;
-};
-
 template<typename E>
-using exprvalues = typename expraccess<E>::valuetype;
+using exprvalue_t = typename E::valuetype;
 template<typename E>
-using exprops = typename expraccess<E>::optype;
-*/
-
+using exprvaluetype_t = typename E::valuetypetype;
 template<typename E>
-using exprvalues = typename E::valuetype;
+using exprop_t = typename E::optype;
 template<typename E>
-using exprops = typename E::optype;
+using expranyvar_t = typename E::anyvartype;
 
 template<typename,typename>
 struct exprunion{};
 
-template<typename Ts1, typename Ops1, typename Ts2, typename Ops2>
-struct exprunion<expr<Ts1,Ops1>,expr<Ts2,Ops2>> {
-	using type = expr<variantunion_t<unpackto_t<std::variant,Ts1>,
-		 					unpackto_t<std::variant,Ts2>>,
-				variantunion_t<unpackto_t<std::variant,Ops1>,
-							unpackto_t<std::variant,Ops2>>>;
+template<typename TV1, typename OPV1, typename TV2, typename OPV2>
+struct exprunion<expr<TV1,OPV1>,expr<TV2,OPV2>> {
+	using type = expr<variantunion_t<repack_t<std::variant,TV1>,
+		 					repack_t<std::variant,TV2>>,
+				variantunion_t<repack_t<std::variant,OPV1>,
+							repack_t<std::variant,OPV2>>>;
 };
 
 template<typename E1, typename E2>
 using exprunion_t = typename exprunion<E1,E2>::type;
+
+template<typename T>
+using expr1type_t = expr<std::variant<T>,std::variant<std::monostate>>;
+template<typename OP>
+using expr1op_t = expr<std::variant<std::monostate>,std::variant<OP>>;
 
 template<typename VT, typename OP, typename ...Args>
 VT evalopdispatch(const OP &o, Args &&...args) {
@@ -115,14 +126,18 @@ VT evalopdispatch(const OP &o, Args &&...args) {
 // assumes that the types are closed under the operations!
 // (otherwise return type would be different)
 template<typename E>
-exprvalues<E> eval(const E &e) {
-	using rett = exprvalues<E>;
+exprvalue_t<E> eval(const E &e) {
+	using rett = exprvalue_t<E>;
 	if (e.isleaf()) {
-		if (isconst(e)) return std::get<0>(e.asleaf()).v;
-		return {};
+		return std::visit([](auto &&a) -> rett {
+				if constexpr (isconstvaltype_v<std::decay_t<decltype(a)>>)
+					return a.v;
+				else return noexprT{};
+			}
+			, e.asleaf());
 	} else {
 		// support up to 4-arg hetrogeneous operators:
-		const exprops<E> &op = e.asnode();
+		const exprop_t<E> &op = e.asnode();
 		switch(e.children.size()) {
 			case 0: return evalopdispatch<rett>(op);
 			case 1: return evalopdispatch<rett>(op,eval(e.children[0]));
@@ -159,78 +174,60 @@ namespace std {
 			return std::hash<std::shared_ptr<varinfo<T>>>{}(s);
 		}
 	};
-	template<typename T> struct hash<anyvar<T>> {
-		typedef anyvar<T> argument_type;
-		typedef std::size_t result_type;
-		result_type operator()(argument_type const &s) const {
-			return std::visit(
-						[](auto &&s2)
-							{ return std::hash<decltype(s2)>{}(s2); },
-						s);
-		}
-	};
-	template<typename Ts, typename Ops> struct hash<expr<Ts,Ops>> {
-		typedef expr<Ts,Ops> argument_type;
+
+	template<typename Ts, typename OPs> struct hash<expr<Ts,OPs>> {
+		typedef expr<Ts,OPs> argument_type;
 		typedef std::size_t result_type;
 		result_type operator()(argument_type const &s) const {
 			return s.ptrhash();
 		}
 	};
 
-	template<typename Ts, typename Ops, typename Ts2, typename Ops2>
-	bool operator==(const expr<Ts,Ops> &e1, const expr<Ts2,Ops2> &e2) {
+	template<typename Ts, typename OPs, typename Ts2, typename OPs2>
+	bool operator==(const expr<Ts,OPs> &e1, const expr<Ts2,OPs2> &e2) {
 		return e1.sameptr(e2);
 	}
-	template<typename Ts, typename Ops, typename Ts2, typename Ops2>
-	bool operator!=(const expr<Ts,Ops> &e1, const expr<Ts2,Ops2> &e2) {
+	template<typename Ts, typename OPs, typename Ts2, typename OPs2>
+	bool operator!=(const expr<Ts,OPs> &e1, const expr<Ts2,OPs2> &e2) {
 		return !(e1==e2);
 	}
 }
 
 
-template<typename E, typename T>
+template<typename T, typename E=expr1type_t<T>>
 E newvar(const std::string &name) {
 	return {var<T>{varinfo<T>(name)}};
 }
 
-// TODO: remove global (somehow?)
-std::size_t globalvarnum__ = 0;
 
-template<typename E,typename T>
+template<typename T, typename E=expr1type_t<T>>
 E newvar() {
-	return newvar<E,T>(std::string("__")+std::to_string(++globalvarnum__));
+	return {var<T>{varinfo<T>()}};
 }
 
-template<typename E, typename T>
+template<typename T, typename E=expr1type_t<T>>
 E newconst(const T &v) {
 	return {constval{v}};
 }
 
-template<typename V>
-struct getvarlambda {
-	template<typename T>
-	V operator()(const var<T> &v) {
-		return v;
-	}
-	template<typename T>
-	V operator()(const T &v) {
-		return {};
-	}
-};
-
 template<typename E>
-anyvar<E> getvar(const E &e) {
-	return std::visit(getvarlambda<anyvar<E>>{},e);
+expranyvar_t<E> getvar(const E &e) {
+	return std::visit([](auto &&a) -> expranyvar_t<E> {
+			if constexpr (isvartype_v<std::decay_t<decltype(a)>>)
+					return a;
+				else return var<noexprT>{};
+			}
+			, e.asleaf());
 }
 
-template<typename T, typename E>
+template<typename OP, typename E>
 bool isop(const E &e) {
-	return !e.isleaf() && std::holds_alternative<T>(e.asnode());
+	return !e.isleaf() && std::holds_alternative<OP>(e.asnode());
 }
 
-template<typename T, typename E>
+template<typename OP, typename E>
 bool isderivop(const E &e) {
-	return !e.isleaf() && isderivtype<T>(e.asnode());
+	return !e.isleaf() && isderivtype<OP>(e.asnode());
 }
 
 template<typename E, typename OP>
@@ -240,18 +237,24 @@ bool isop(const E &e, const OP &o) {
 
 template<typename E>
 bool isconst(const E &e) {
-	return e.isleaf() && e.asleaf().index()==0;
+	return e.isleaf() && std::visit([](auto &&a) {
+			return (isconstvaltype_v<std::decay_t<decltype(a)>>);
+			}
+		, e.asleaf());
 }
 
 template<typename E>
 bool isvar(const E &e) {
-	return e.isleaf() && std::holds_alternative<var>(e.asleaf());
+	return e.isleaf() && std::visit([](auto &&a) {
+			return (isvartype_v<std::decay_t<decltype(a)>>);
+			}
+		, e.asleaf());
 }
 
 template<typename E>
-using vset = std::unordered_set<anyvar<E>>;
+using vset_t = std::unordered_set<expranyvar_t<E>>;
 template<typename E>
-using vmap = std::unordered_map<anyvar<E>,anyvar<E>>;
+using vmap_t = std::unordered_map<expranyvar_t<E>,expranyvar_t<E>>;
 //using vkmap = std::unordered_map<var,any>;
 
 struct scopeop {}; // base class for any operator who first
@@ -260,8 +263,8 @@ struct scopeop {}; // base class for any operator who first
 // do not call!
 template<typename E>
 bool isconstexpr1(const E &e,
-		const std::optional<vset<E>> &vars,
-		vset<E> &exceptvars) {
+		const std::optional<vset_t<E>> &vars,
+		vset_t<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return true;
 		if (!isvar(e)) return false;
@@ -287,22 +290,22 @@ bool isconstexpr1(const E &e,
 
 // vars == empty => "all vars"
 template<typename E>
-bool isconstexpr(const E &e, const std::optional<vset<E>> &vars = {}) {
-	vset<E> ex;
+bool isconstexpr(const E &e, const std::optional<vset_t<E>> &vars = {}) {
+	vset_t<E> ex;
 	return isconstexpr1(e,vars,ex);
 }
 
 template<typename E>
-bool isconstexpr(const E &e, const var &v) {
-    vset<E> ex;
-    std::optional<vset<E>> vars{std::in_place,{v}};
+bool isconstexpr(const E &e, const expranyvar_t<E> &v) {
+    vset_t<E> ex;
+    std::optional<vset_t<E>> vars{std::in_place,{v}};
     return isconstexpr1(e,vars,ex);
 }
 
 template<typename E>
-bool isconstexprexcept(const E &e, const var &v) {
-    vset<E> ex{v};
-    std::optional<vset<E>> vars{};
+bool isconstexprexcept(const E &e, const expranyvar_t<E> &v) {
+    vset_t<E> ex{v};
+    std::optional<vset_t<E>> vars{};
     return isconstexpr1(e,vars,ex);
 }
 	    
@@ -310,8 +313,8 @@ bool isconstexprexcept(const E &e, const var &v) {
 // do not call!
 template<typename E>
 bool isnonconstexpr1(const E &e,
-		const std::optional<vset<E>> &vars,
-		vset<E> &exceptvars) {
+		const std::optional<vset_t<E>> &vars,
+		vset_t<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return false;
 		if (!isvar(e)) return false; // (not sure what to place here...
@@ -339,10 +342,9 @@ bool isnonconstexpr1(const E &e,
 // vars == empty => "all vars"
 template<typename E>
 bool isnonconstexpr(const E &e,
-		const std::optional<vset<E>> &vars = {}) {
-	vset<E> ex;
+		const std::optional<vset_t<E>> &vars = {}) {
+	vset_t<E> ex;
 	return isnonconstexpr1(e,vars,ex);
 }
-
 
 #endif

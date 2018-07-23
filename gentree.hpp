@@ -147,7 +147,7 @@ class gentree {
 			}
 		}
 
-		// F should map gentree -> optional<gentree>
+		// F should be of type "gentree -> optional<gentree>"
 		// (if fn returns no value, then use existing (sub)tree)
 		template<typename F>
 		gentree map(F fn) const {

@@ -1,6 +1,8 @@
 #include <iostream>
 #include <variant>
 #include <string>
+#include "typetostr.hpp"
+#include "typestuff.hpp"
 
 using namespace std;
 
@@ -42,8 +44,11 @@ variant<uninittype<Ts>...> evaloptype(const OP &op,
 }
 
 template<typename ...Ts>
-const char *varname(const variant<Ts...> &v) {
-	return visit([](auto &&x) { return typeid(tobase_t<decltype(x)>()).name(); },v);
+auto varname(const variant<Ts...> &v) {
+	//return visit([](auto &&x) { return typeid(tobase_t<decltype(x)>()).name(); },v);
+	return visit([](auto &&x)
+			{ return typetostr<tobase_t<decltype(x)>()>(); }
+		,v);
 }
 
 int main(int argc, char **argv) {
@@ -61,7 +66,16 @@ int main(int argc, char **argv) {
 	cout << varname(evaloptype(OP2{},z,z)) << endl;
 
 	cout << varname(evaloptype(OP1{},y,z)) << endl;
+
+	variant<monostate,int,long,double> a;
+	innerwrap_t<uninittype,decltype(a)> b;
+	cout << typetostr<decltype(a)>() << endl;
+	cout << typetostr<decltype(b)>() << endl;
+	cout << typetostr<decltype(x)>() << endl;
+
 }
+
+
 	
 	
 		

@@ -77,23 +77,66 @@ struct tmplparam<T<TT>> {
 template<typename T>
 using tmplparam_t = typename tmplparam<T>::type;
 
+//----
+// to change variant<A,B,C> into variant<T<A>,T<B>,T<C>>
+
+template<template<typename> typename T, typename V>
+struct innerwrap{};
+
+template<template<typename> typename T, typename... ABC>
+struct innerwrap<T,std::variant<ABC...>> {
+	using type = std::variant<T<ABC>...>;
+};
+
+template<template<typename> typename T, typename V>
+using innerwrap_t = typename innerwrap<T,V>::type;
+
 //-----
 
 template<template<typename...> typename T, typename A>
-struct unpackto;
+struct repack;
 
 template<template<typename...> typename T, typename... Args>
-struct unpackto<T, std::tuple<Args...>> {
+struct repack<T, std::tuple<Args...>> {
 	typedef T<Args...> type;
 };
 
 template<template<typename...> typename T, typename... Args>
-struct unpackto<T, std::variant<Args...>> {
+struct repack<T, std::variant<Args...>> {
 	typedef T<Args...> type;
 };
 
 template<template<typename...> typename T, typename... Args>
-using unpackto_t = typename unpackto<T,Args...>::type;
+using repack_t = typename repack<T,Args...>::type;
+
+
+
+template<template<typename...> typename T, typename A, typename... Adds>
+struct repacknomonoadd;
+
+template<template<typename...> typename T, typename... Adds>
+struct repacknomonoadd<T, std::tuple<>, Adds...> {
+	using type = T<Adds...>;
+};
+
+template<template<typename...> typename T,
+			typename Arg1, typename... Args, typename... Adds>
+struct repacknomonoadd<T, std::tuple<Arg1,Args...>, Adds...> {
+	using type = typename std::conditional<
+		std::is_same<Arg1,std::monostate>::value,
+		typename repacknomonoadd<T,std::tuple<Args...>,Adds...>::type,
+		typename repacknomonoadd<T,std::tuple<Args...>,Arg1,Adds...>::type
+			>::type;
+};
+
+template<template<typename...> typename T,
+			typename... Args, typename... Adds>
+struct repacknomonoadd<T, std::variant<Args...>, Adds...> {
+	using type = typename repacknomonoadd<T,std::tuple<Args...>,Adds...>::type;
+};
+
+template<template<typename...> typename T, typename... Args>
+using repacknomonoadd_t = typename repacknomonoadd<T,Args...>::type;
 
 //-----
 
