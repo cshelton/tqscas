@@ -2,6 +2,8 @@
 #define EXPRBASEOPS_HPP
 
 #include "exprbase.hpp"
+#include "exprtostr.hpp"
+#include <iostream>
 
 /* An operator is a type with no state. 
  *
@@ -24,26 +26,26 @@
 /*
  * One abstract supertype for op defined in exprbase.hpp: scopeop
  *
- * Two concrete op types defined here:  opbinarychain and evalatop
+ * Two concrete op types defined here:  binarychainop and evalatop
  *
  * Anything else is up to the domain
  */
 
 template<typename BASEOP, bool leftassoc=true>
-struct opbinarychain {};
+struct binarychainop {};
 
 template<typename BASEOP, bool leftassoc>
-constexpr int precedence(opbinarychain<BASEOP,leftassoc>) {
+constexpr int precedence(binarychainop<BASEOP,leftassoc>) {
 	return precedence(BASEOP());
 }
 
 template<typename BASEOP, bool leftassoc>
-std::string symbol(opbinarychain<BASEOP,leftassoc>) {
-	return std::string("[")+symbol(BASEOP())+std::string("]");
+std::string symbol(binarychainop<BASEOP,leftassoc>) {
+	return symbol(BASEOP())+std::string("...");
 }
 
 template<typename BASEOP, bool leftassoc>
-std::string write(opbinarychain<BASEOP,leftassoc>,
+std::string write(binarychainop<BASEOP,leftassoc>,
 		const std::vector<std::pair<std::string,int>> &subst) {
 	using vpsi = std::vector<std::pair<std::string,int>>;
 	if (subst.size()<=2) return write(BASEOP(),subst);
@@ -56,49 +58,49 @@ std::string write(opbinarychain<BASEOP,leftassoc>,
 	} else {
 		int i=subst.size()-1;
 		std::string ret = write(BASEOP(),vpsi{subst[i-1],subst[i]});
-		for(i-=2;i>=0;i++)
+		for(i-=2;i>=0;i--)
 			ret += write(BASEOP(),vpsi{subst[i],make_pair(ret,myprec)});
 		return ret;
 	}
 }
 
-template<typename BASEOP, bool leftassoc, typename T>
-auto evalop(opbinarychain<BASEOP,leftassoc>, T &&v) {
-	return std::forward<T>(v);
+template<typename BASEOP, typename T, bool leftassoc>
+auto evalop(const binarychainop<BASEOP,leftassoc> &, T &&v) {
+	return v;
 }
 
-template<typename BASEOP, typename ...T1, typename T2>
-auto evalop(opbinarychain<BASEOP,true> o, T1 &&...v1, T2 &&v2) {
-	return evalop(BASEOP(),
-			evalop(o,std::forward<T1>(v1)...),
-			std::forward<T2>(v2));
+template<typename BASEOP, typename T1, typename T2, typename... Ts>
+auto evalop(const binarychainop<BASEOP,true> &o, T1 &&v1, T2 &&v2, Ts &&...vs) {
+	return evalop(o,evalop(BASEOP(),std::forward<T1>(v1),
+								std::forward<T2>(v2)),
+			std::forward<Ts>(vs)...);
 }
 
-template<typename BASEOP, typename T1, typename ...T2>
-auto evalop(opbinarychain<BASEOP,false> o, T1 &&v1, T2 &&...v2) {
+template<typename BASEOP, typename T1, typename T2, typename... Ts>
+auto evalop(const binarychainop<BASEOP,false> &o, T1 &&v1, T2 &&v2, Ts &&...vs) {
 	return evalop(BASEOP(),
 			std::forward<T1>(v1),
-			evalop(o,std::forward<T2>(v2)...));
+			evalop(o,std::forward<T2>(v2),std::forward<Ts>(vs)...));
 }
 
-template<typename BASEOP, typename T>
-T evalop(opbinarychain<BASEOP,true>, const std::vector<T> &vs) {
+template<typename VT, typename BASEOP>
+VT evalopvec(const binarychainop<BASEOP,true> &,
+			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
-	BASEOP bop();
-	T ans = evalopdispatch(bop,vs[0],vs[1]);
+	VT ans = evalopdispatchknownop<VT>(BASEOP{},vs[0],vs[1]);
 	for(std::size_t i=2;i<vs.size();++i)
-		ans = evalopdispatch(bop,ans,vs[i]);
+			ans = evalopdispatchknownop<VT>(BASEOP{},ans,vs[i]);
 	return ans;
 }
 
-template<typename BASEOP, typename T>
-T evalop(opbinarychain<BASEOP,false>, const std::vector<T> &vs) {
+template<typename VT, typename BASEOP>
+VT evalopvec(const binarychainop<BASEOP,false> &,
+			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
-	BASEOP bop();
 	std::size_t i=vs.size();
-	T ans = evalopdispatch(bop,vs[i-2],vs[i-1]);
+	VT ans = evalopdispatchknownop<VT>(BASEOP{},vs[i-2],vs[i-1]);
 	for(i-=2;i>0;--i)
-		ans = evalopdispatch(bop,vs[i-1],ans);
+		ans = evalopdispatchknownop<VT>(BASEOP{},vs[i-1],ans);
 	return ans;
 }
 

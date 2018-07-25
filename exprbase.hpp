@@ -198,19 +198,38 @@ auto buildexpr(const OP &node, Es &&...subexprs) {
 	}
 }
 
-template<typename O, typename... Cs>
-std::monostate evalop(const O &, Cs &&...) {
+// takes an op and the args (in raw type), returns the value of the op
+// applied to the args (in raw type)
+std::monostate evalop(...) {
 	assert(false);
+}
+
+// takes an op and a vector of variants, returns the value in the
+// variant type given as the first template argument
+template<typename VT>
+VT evalopvec(...) {
+	assert(false);
+}
+
+template<typename VT, typename OP, typename ...Args>
+auto evalopdispatchknownop(const OP &o, Args &&...args) {
+	return std::visit([&o](auto &&...as) -> VT {
+		if constexpr ((... || (std::is_same_v<std::monostate,
+							std::decay_t<decltype(as)>>)))
+			return std::monostate{};
+		else return evalop(std::forward<decltype(o)>(o),
+						std::forward<decltype(as)>(as)...);
+		}, std::forward<Args>(args)...);
 }
 
 template<typename VT, typename OPV, typename ...Args>
 VT evalopdispatch(const OPV &ov, Args &&...args) {
-	return std::visit([](auto &&o, auto &&...params) -> VT {
+	return std::visit([](auto &&o, auto &&...as) -> VT {
 		if constexpr ((... || (std::is_same_v<std::monostate,
-							std::decay_t<decltype(params)>>)))
+							std::decay_t<decltype(as)>>)))
 			return std::monostate{};
 		else return evalop(std::forward<decltype(o)>(o),
-						std::forward<decltype(params)>(params)...);
+						std::forward<decltype(as)>(as)...);
 		}, ov, std::forward<Args>(args)...);
 }
 
@@ -251,7 +270,8 @@ exprvalue_t<E> eval(const E &e) {
 				for(auto &&c : ch)
 					ceval.emplace_back(eval(c));
 				return std::visit([&ceval](auto &&op) -> rett {
-						return evalop(std::forward<decltype(op)>(op),
+						return evalopvec<rett>(
+								std::forward<decltype(op)>(op),
 								ceval); },opv);
 		    }
 		}

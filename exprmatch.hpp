@@ -106,9 +106,9 @@ bool opsmatch(const E &e1, const E &e2) {
 	auto n2 = e2.asnode();
 
 	template<typename T>
-	using chaintrue = opbinarychain<T,true>;
+	using chaintrue = binarychainop<T,true>;
 	template<typename T>
-	using chainfalse = opbinarychain<T,false>;
+	using chainfalse = binarychainop<T,false>;
 
 	return sametype(n1,n2) || 
 		sametypewrap<chaintrue>(n1,n2) ||

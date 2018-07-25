@@ -3,6 +3,7 @@
 #include <string>
 #include "typetostr.hpp"
 #include "exprtostr.hpp"
+#include "exprbaseops.hpp"
 
 using namespace std;
 
@@ -104,6 +105,11 @@ int main(int argc, char **argv) {
 	dumpexpr(e8);
 	dumpexpr(e9);
 	dumpexpr(e10);
+
+	auto e11 = buildexpr(binarychainop<myop,false>{},e6,e7,e6,e10);
+	dumpexpr(e11);
+	auto e12 = buildexpr(binarychainop<myop,true>{},e6,e7,e6,e10);
+	dumpexpr(e12);
 
 
 	
