@@ -180,5 +180,12 @@ struct variantunion<V,std::variant<Us...>> {
 template<typename V1, typename V2>
 using variantunion_t = typename variantunion<V1,V2>::type;
 
+// variant "upgrade" to superset
+
+template<typename Vsuper, typename Vsub>
+Vsuper upgradevariant(Vsub &&v) {
+	return std::visit([](auto &&x) -> Vsuper { return x; },v);
+}
+
 
 #endif

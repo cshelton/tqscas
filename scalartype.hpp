@@ -34,7 +34,7 @@ struct scalarreal : boost::operators<scalarreal> {
 	*/
 
 	explicit operator double() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: return (double)(boost::get<rtype>(v).numerator())/(double)(boost::get<rtype>(v).denominator());
 			case 1: return boost::get<double>(v);
 			case 2: return std::exp(1.0);
@@ -48,37 +48,37 @@ struct scalarreal : boost::operators<scalarreal> {
 	}
 
 	scalarreal operator-() const {
-		if (v.which()==0) return scalarreal{-boost::get<rtype>(v)};
+		if (v.index()==0) return scalarreal{-boost::get<rtype>(v)};
 		else return scalarreal{-(double)(*this)};
 		return *this;
 	}
 
 	scalarreal &operator+=(const scalarreal &s) {
-		if (v.which()==0 && s.v.which()==0) boost::get<rtype>(v) += boost::get<rtype>(s.v);
+		if (v.index()==0 && s.v.index()==0) boost::get<rtype>(v) += boost::get<rtype>(s.v);
 		else v = (double)(*this) + (double)(s);
 		return *this;
 	}
 	scalarreal &operator-=(const scalarreal &s) {
-		if (v.which()==0 && s.v.which()==0) boost::get<rtype>(v) -= boost::get<rtype>(s.v);
+		if (v.index()==0 && s.v.index()==0) boost::get<rtype>(v) -= boost::get<rtype>(s.v);
 		else v = (double)(*this) - (double)(s);
 		return *this;
 	}
 	scalarreal &operator*=(const scalarreal &s) {
-		if (v.which()==0 && s.v.which()==0) boost::get<rtype>(v) *= boost::get<rtype>(s.v);
+		if (v.index()==0 && s.v.index()==0) boost::get<rtype>(v) *= boost::get<rtype>(s.v);
 		else v = (double)(*this) * (double)(s);
 		return *this;
 	}
 	scalarreal &operator/=(const scalarreal &s) {
-		if (v.which()==0 && s.v.which()==0 && s) boost::get<rtype>(v) /= boost::get<rtype>(s.v);
+		if (v.index()==0 && s.v.index()==0 && s) boost::get<rtype>(v) /= boost::get<rtype>(s.v);
 		else v = (double)(*this) / (double)(s);
 		return *this;
 	}
 	bool operator<(const scalarreal &s) const {
-		if (v.which()==0 && s.v.which()==0) return boost::get<rtype>(v) < boost::get<rtype>(s.v);
+		if (v.index()==0 && s.v.index()==0) return boost::get<rtype>(v) < boost::get<rtype>(s.v);
 		else return (double)(*this) < (double)(s);
 	}
 	bool operator==(const scalarreal &s) const {
-		if (v.which()==0 && s.v.which()==0) return boost::get<rtype>(v) == boost::get<rtype>(s.v);
+		if (v.index()==0 && s.v.index()==0) return boost::get<rtype>(v) == boost::get<rtype>(s.v);
 		else return (double)(*this) == (double)(s);
 	}
 	bool operator==(const double &d) const {
@@ -88,29 +88,29 @@ struct scalarreal : boost::operators<scalarreal> {
 		return (double)(*this) < d;
 	}
 	bool operator==(const int &i) const {
-		switch (v.which()) {
+		switch (v.index()) {
 			case 0: return boost::get<rtype>(v)==i;
 			case 1: return (double)(*this) == i;
 			default: return false;
 		}
 	}
 	bool operator<(const int &i) const {
-		if (v.which()==0) return boost::get<rtype>(v)<i;
+		if (v.index()==0) return boost::get<rtype>(v)<i;
 		else return (double)(*this) < i;
 	}
 	const scalarreal &operator++() {
-		if (v.which()==0) boost::get<rtype>(v)++;
+		if (v.index()==0) boost::get<rtype>(v)++;
 		else v = (double)(*this)+1.0;
 		return *this;
 	}
 	const scalarreal &operator--() {
-		if (v.which()==0) boost::get<rtype>(v)--;
+		if (v.index()==0) boost::get<rtype>(v)--;
 		else v = (double)(*this)-1.0;
 		return *this;
 	}
 		
 	explicit operator bool() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: return (bool)(boost::get<rtype>(v));
 			case 1: return boost::get<double>(v)!=0.0;
 			case 2: return true;
@@ -119,7 +119,7 @@ struct scalarreal : boost::operators<scalarreal> {
 		}
 	}
 	bool operator!() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: return !(boost::get<rtype>(v));
 			case 1: return boost::get<double>(v)==0.0;
 			case 2: return false;
@@ -129,7 +129,7 @@ struct scalarreal : boost::operators<scalarreal> {
 	}
 
 	bool isint() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: return boost::get<rtype>(v).numerator() % boost::get<rtype>(v).denominator() == 0;
 			case 1: return std::fmod(boost::get<double>(v),1.0) == 0.0;
 			default: return false;
@@ -144,7 +144,7 @@ struct scalarreal : boost::operators<scalarreal> {
 	}
 
 	scalarreal round() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: {
 				   auto &r = boost::get<rtype>(v);
 				   auto div = std::div(r.numerator(),r.denominator());
@@ -160,7 +160,7 @@ struct scalarreal : boost::operators<scalarreal> {
 	}
 
 	scalarreal floor() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: {
 				   auto &r = boost::get<rtype>(v);
 				   auto div = std::div(r.numerator(),r.denominator());
@@ -173,7 +173,7 @@ struct scalarreal : boost::operators<scalarreal> {
 	}
 
 	scalarreal ceil() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: {
 				   auto &r = boost::get<rtype>(v);
 				   auto div = std::div(r.numerator(),r.denominator());
@@ -186,14 +186,14 @@ struct scalarreal : boost::operators<scalarreal> {
 	}
 
 	int asint() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: return boost::get<rtype>(v).numerator() / boost::get<rtype>(v).denominator();
 			default: return std::round((double)(*this));
 		}
 	}
 
 	bool iszero() const {
-		switch(v.which()) {
+		switch(v.index()) {
 			case 0: return boost::get<rtype>(v).numerator() ==0;
 			case 1: return boost::get<double>(v) == 0.0;
 			default: return false;
@@ -216,7 +216,7 @@ namespace std {
 	};
 
 	bool isfinite(const scalarreal &s) {
-		switch(s.v.which()) {
+		switch(s.v.index()) {
 			case 1: return std::isfinite(boost::get<double>(s.v));
 			default: return true;
 		}
@@ -235,7 +235,7 @@ auto floor(const scalarreal &s) {
 
 std::string tostring(const scalarreal &s) {
 	if (s.isint()) return std::to_string(s.asint());
-	switch (s.v.which()) {
+	switch (s.v.index()) {
 		case 0: {
 				   auto &r = boost::get<scalarreal::rtype>(s.v);
 				   return std::string("(")+std::to_string(r.numerator())+"/"+std::to_string(r.denominator())+")";
@@ -263,14 +263,14 @@ std::istream &operator>>(std::istream &is, scalarreal &s) {
 */
 
 scalarreal abs(const scalarreal &s) {
-	if (s.v.which()==0)
+	if (s.v.index()==0)
 		return scalarreal{abs(boost::get<scalarreal::rtype>(s.v))};
 	return scalarreal{(double)std::abs((double)(s))};
 }
 
 scalarreal log(const scalarreal &e) {
 	if (e==1.0) return scalarreal{0};
-	switch(e.v.which()) {
+	switch(e.v.index()) {
 		case 2: return scalarreal{1};
 		default: return log((double)e);
 	}
@@ -296,12 +296,12 @@ scalarreal pow(const scalarreal &b, const int &e) {
 	if (e==1) return b;
 	if (e==0) return scalarreal{1};
 	if (e==-1) return 1/b;
-	if (b.v.which()==2)
+	if (b.v.index()==2)
 		return scalarreal{std::exp((double)e)};
-	if (b.v.which()==1)
+	if (b.v.index()==1)
 		return scalarreal{ std::pow((double)b,(double)e) };
 	if (b==1) return scalarreal{1};
-	if (b.v.which()==0)
+	if (b.v.index()==0)
 		return intpow(b,e);
 	else
 		return scalarreal{ std::pow((double)b,(double)e) };
@@ -311,12 +311,12 @@ scalarreal pow(const scalarreal &b, const scalarreal &e) {
 	if (e==1) return b;
 	if (e==0) return scalarreal{1};
 	if (e==-1) return 1/b;
-	if (b.v.which()==2)
+	if (b.v.index()==2)
 		return scalarreal{std::exp((double)e)};
-	if (b.v.which()==1 || e.v.which()==1)
+	if (b.v.index()==1 || e.v.index()==1)
 		return scalarreal{ std::pow((double)b,(double)e) };
 	if (b==1) return scalarreal{1};
-	if (b.v.which()==0 && e.isint())
+	if (b.v.index()==0 && e.isint())
 		return intpow(b,e.asint());
 	else
 		return scalarreal{ std::pow((double)b,(double)e) };

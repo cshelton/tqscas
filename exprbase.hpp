@@ -9,15 +9,21 @@
 #include <map>
 #include <cmath>
 
-// a type to represent no expression (as a leaf in an expression tree)
+// a type to represent no (sub)expression (as a leaf in an expression tree)
+// (often to represent an error or otherwise incomputable (sub)expression)
 struct noexprT {};
 
 // constval holds a constant (as a leaf in an expression tree)
 template<typename T>
 struct constval {
 	T v;
-	template<typename S>
-	constval(S &&val) : v{std::forward<S>(val)} {}
+	//template<typename S>
+	//explicit constval(S &&val) : v{std::forward<S>(val)} {}
+
+	constval(const T &vv) : v(vv) {}
+	constval(T &&vv) : v(std::move(vv)) {}
+	constval(const constval &) = default;
+	constval(constval &&) = default;
 };
 
 template<typename> struct isconstvaltype : public std::false_type { };
@@ -68,17 +74,8 @@ struct typetype {};
 
 // An expression!  TV is a variant type containing all of the possible
 template<typename TV, typename OPV>
-struct expr : public gentree<repacknomonoadd_t<leaf,TV>,
-						repacknomonoadd_t<node,OPV>> {
-	using base = gentree<repacknomonoadd_t<leaf,TV>,
-					repacknomonoadd_t<node,OPV>>;
-	using base::base;
-
-	using valuetype = repacknomonoadd_t<std::variant,TV,noexprT>;
-	using valuetypetype = innerwrap_t<typetype,valuetype>;
-	using optype = repack_t<std::variant,OPV>;
-	using anyvartype = innerwrap_t<var,valuetype>;
-};
+using expr = gentree<repacknomonoadd_t<leaf,TV>,
+						repacknomonoadd_t<node,OPV>>;
 
 template<typename E>
 using exprmap = std::map<int,E>;
@@ -88,33 +85,89 @@ using optexprmap = std::optional<exprmap<E>>;
 template<typename T>
 struct expraccess {};
 
-template<typename E>
-using exprvalue_t = typename E::valuetype;
-template<typename E>
-using exprvaluetype_t = typename E::valuetypetype;
-template<typename E>
-using exprop_t = typename E::optype;
-template<typename E>
-using expranyvar_t = typename E::anyvartype;
+template<typename TV, typename OPV>
+struct expraccess<gentree<repacknomonoadd_t<leaf,TV>,
+						repacknomonoadd_t<node,OPV>>> {
 
-template<typename,typename>
-struct exprunion{};
+	using valuetype = repacknomonoadd_t<std::variant,TV,noexprT>;
+	using valuetypetype = innerwrap_t<typetype,valuetype>;
+	using anyvartype = innerwrap_t<var,valuetype>;
 
-template<typename TV1, typename OPV1, typename TV2, typename OPV2>
-struct exprunion<expr<TV1,OPV1>,expr<TV2,OPV2>> {
-	using type = expr<variantunion_t<repack_t<std::variant,TV1>,
-		 					repack_t<std::variant,TV2>>,
-				variantunion_t<repack_t<std::variant,OPV1>,
-							repack_t<std::variant,OPV2>>>;
+	using leaftype = repacknomonoadd_t<leaf,TV>;
+	using nodetype = repacknomonoadd_t<node,OPV>;
+	using leafvarianttype = repack_t<variant,TV>;
+	using nodevarianttype = repack_t<variant,OPV>;
 };
 
-template<typename E1, typename E2>
-using exprunion_t = typename exprunion<E1,E2>::type;
+
+template<typename E>
+using exprvalue_t = typename expraccess<E>::valuetype;
+template<typename E>
+using exprvaluetype_t = typename expraccess<E>::valuetypetype;
+template<typename E>
+using expranyvar_t = typename expraccess<E>::anyvartype;
+template<typename E>
+using exprleaf_t = typename expraccess<E>::leaftype;
+template<typename E>
+using exprnode_t = typename expraccess<E>::nodetype;
+template<typename E>
+using exprleafasvariant_t = typename expraccess<E>::leafvarianttype;
+template<typename E>
+using exprnodeasvariant_t = typename expraccess<E>::nodevarianttype;
+
+template<typename...>
+struct exprunion{};
+
+template<typename E>
+struct exprunion<E> {
+	using ltype = exprleafasvariant_t<E>;
+	using ntype = exprnodeasvariant_t<E>;
+	using type = E;
+};
+
+template<typename E, typename... Es>
+struct exprunion<E,Es...> {
+	using ltype = variantunion_t<exprleafasvariant_t<E>,
+		 		typename exprunion<Es...>::ltype>;
+	using ntype = variantunion_t<exprnodeasvariant_t<E>,
+		 		typename exprunion<Es...>::ntype>;
+	using type = expr<ltype,ntype>;
+};
+
+template<typename E, typename... Es>
+using exprunion_t = typename exprunion<E,Es...>::type;
 
 template<typename T>
 using expr1type_t = expr<std::variant<T>,std::variant<std::monostate>>;
 template<typename OP>
 using expr1op_t = expr<std::variant<std::monostate>,std::variant<OP>>;
+
+template<typename E, typename Eret>
+E upgradeexpr(const Eret &e) {
+	using ltype = exprleaf_t<E>;
+	using ntype = exprnode_t<E>;
+	return e.fold(
+			[](auto &&l) { // convert leafs to ltype
+				return E(upgradevariant<ltype>
+							(std::forward<decltype(l)>(l)));
+			},
+			[](auto &&n, auto &&ch) { // convert nodes to ntype
+						// pass children on unchanged (already converted)
+				return E(upgradevariant<ntype>
+							(std::forward<decltype(n)>(n)),
+						std::forward<decltype(ch)>(ch));
+			});
+}
+
+template<typename OP, typename... Es>
+auto buildexpr(const OP &node, Es &&...subexprs) {
+	using rett = exprunion_t<expr1op_t<OP>,std::decay_t<Es>...>;
+	if constexpr ((... && (std::is_same_v<rett,Es>))) {
+		return rett(node,std::forward<Es>(subexprs)...);
+	} else { // must "upgrade" some/all of the subexprs
+		return rett(node,upgradeexpr<rett>(subexprs)...);
+	}
+}
 
 template<typename VT, typename OP, typename ...Args>
 VT evalopdispatch(const OP &o, Args &&...args) {
@@ -137,7 +190,7 @@ exprvalue_t<E> eval(const E &e) {
 			, e.asleaf());
 	} else {
 		// support up to 4-arg hetrogeneous operators:
-		const exprop_t<E> &op = e.asnode();
+		auto &op = e.asnode();
 		switch(e.children.size()) {
 			case 0: return evalopdispatch<rett>(op);
 			case 1: return evalopdispatch<rett>(op,eval(e.children[0]));
@@ -175,8 +228,8 @@ namespace std {
 		}
 	};
 
-	template<typename Ts, typename OPs> struct hash<expr<Ts,OPs>> {
-		typedef expr<Ts,OPs> argument_type;
+	template<typename... Ts> struct hash<gentree<Ts...>> {
+		typedef gentree<Ts...> argument_type;
 		typedef std::size_t result_type;
 		result_type operator()(argument_type const &s) const {
 			return s.ptrhash();
@@ -196,18 +249,18 @@ namespace std {
 
 template<typename T, typename E=expr1type_t<T>>
 E newvar(const std::string &name) {
-	return {var<T>{varinfo<T>(name)}};
+	return E{var<T>{varinfo<T>(name)}};
 }
 
 
 template<typename T, typename E=expr1type_t<T>>
 E newvar() {
-	return {var<T>{varinfo<T>()}};
+	return E{var<T>{varinfo<T>()}};
 }
 
 template<typename T, typename E=expr1type_t<T>>
 E newconst(const T &v) {
-	return {constval{v}};
+	return E{constval{v}};
 }
 
 template<typename E>

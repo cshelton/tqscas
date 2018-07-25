@@ -226,7 +226,7 @@ class gentree {
 			return t.root == root;
 		}
 
-		bool isleaf() const { return root->which()==0; }
+		bool isleaf() const { return root->index()==0; }
 
 		const LT &asleaf() const { return std::get<leafT>(*root); }
 		const NT &asnode() const { return std::get<nodeT>(*root).node; }
