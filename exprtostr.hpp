@@ -6,21 +6,110 @@
 #include "exprbase.hpp"
 #include "typestuff.hpp"
 
+std::string to_string(const std::monostate &) { return std::string(""); }
+
+template<typename T, typename = void>
+struct hasstdtostring : std::false_type {};
+
+template<typename T>
+struct hasstdtostring<T,std::void_t<
+		decltype(std::to_string(std::declval<T>()))>> : std::true_type {};
+
+template<typename T>
+inline constexpr bool hasstdtostring_v = hasstdtostring<T>::value;
+
+template<typename T>
+std::string tostring(const T &x) {
+	if constexpr (hasstdtostring_v<T>) return std::to_string(x);
+	else return to_string(x);
+}
+
+// this should be overloaded!
+template<typename O>
+constexpr int precedence(const O &) {
+	return 100;
+}
+
+// this should be overloaded!
+template<typename O>
+constexpr std::string symbol(const O &) {
+	return "?";
+}
+
+// some helpful routines for constructing "write" functions for operators
+
+std::string putinparen(std::string s, bool yes) {
+	if (yes) return std::string("(") + s + std::string(")");
+	else return s;
+}
+
+template<typename O>
+std::string writeinplace(O op,
+		const std::vector<std::pair<std::string,int>> &subst,
+		bool leftassoc=true) {
+	int myprec = precedence(op);
+	if (subst.size()<=1) return subst[0].first;
+	std::string ret;
+	if (leftassoc) {
+		ret = putinparen(subst[0].first,subst[0].second>myprec);
+		for(int i=1;i<subst.size();i++)
+			ret += symbol(op) + putinparen(subst[i].first,subst[i].second>=myprec);
+	} else {
+		ret = putinparen(subst.back().first,subst.back().second>myprec);
+		for(int i=subst.size()-2;i>=0;i--)
+			ret += putinparen(subst[i].first,subst[i].second>=myprec) +
+				symbol(op) + ret;
+	}
+	return ret;
+}
+
+template<typename O>
+std::string writeprefixunary(O op,
+		const std::vector<std::pair<std::string,int>> &subst) {
+	return symbol(op) + putinparen(subst[0].first,subst[0].second>precedence(op));
+}
+
+template<typename O>
+std::string writeasfunc(O op,
+		const std::vector<std::pair<std::string,int>> &subst) {
+	std::string ret = symbol(op) + "(";
+	for(int i=0;i<subst.size();i++) {
+		if (i) ret += ",";
+		ret += subst[i].first;
+	}
+	return ret+")";
+}
+
+// this can be overloaded as needed
+template<typename O>
+std::string write(const O &op,
+		const std::vector<std::pair<std::string,int>> &subst) {
+	switch(subst.size()) {
+		case 1: return writeprefixunary(op,subst);
+		case 2: return writeinplace(op,subst); // assume left associativity
+		default: return writeasfunc(op,subst);
+	}
+}
+
+
+
 template<typename E>
-std::string tostring(const E &e) {
-	return e.fold([](const auto &l) {
-			if (istype<var>(l))
-				return std::make_pair(std::get<var>(l)->name,0);
-			if (istype<noexprT>(l))
-				return std::make_pair(std::string(""),0);
-			return std::visit([](auto &&a) -> std::string {
-					return std::to_string(std::forward<decltype(a)>(a));
-					}, l);
+std::string to_string(const E &e) {
+	return exprfold(e,
+			[](const auto &l) {
+				using L = std::decay_t<decltype(l)>;
+				if constexpr (isvartype_v<L>)
+					return std::make_pair(l->name,0);
+				else if constexpr (isconsttype_v<L>)
+					return std::make_pair(tostring(l.v),0);
+				else return std::make_pair(std::string(""),0);
 			},
-			[](const auto &o, const std::vector<std::pair<std::string,int>> &ch) {
-				return std::make_pair(write(o,ch),precidence(o));
+			[](const auto &o, auto &&chval) {
+				return std::make_pair(write(o,
+					std::forward<decltype(chval)>(chval)),
+					precedence(o));
 			}
-	).first;
+		).first;
 }
 
 template<typename E>
@@ -41,16 +130,16 @@ std::string draw(const E &e) {
 		}
 	};
 
-	auto lines = e.fold([](const auto &l) {
-			if (istype<var>(l))
-				return std::get<var>(l)->name+"\n";
-			if (istype<noexprT>(l))
-				return std::make_pair(std::string("\n"),0);
-			return std::visit([](auto &&a) -> std::string {
-				return std::to_string(std::forward<decltype(a)>(a))+"\n";
-				}, l);
+	auto lines = exprfold(e,
+			[](const auto &l) -> retT {
+				using L = std::decay_t<decltype(l)>;
+				if constexpr (isvartype_v<L>)
+					return l->name+"\n";
+				else if constexpr (isconsttype_v<L>)
+					return tostring(l.v) +"\n";
+				else return std::string("\n");
 			},
-			[](const auto &o, const std::vector<retT> &ch) {
+			[](const auto &o, auto &&ch) {
 				auto sym = symbol(o);
 				if (ch.empty()) return retT(sym);
 				retT ret("");
@@ -92,49 +181,7 @@ std::string draw(const E &e) {
 	return std::accumulate(ls.begin(),ls.end(),std::string(""));
 }
 
-// some helpful routines for constructing "write" functions for operators
 
 
-std::string putinparen(std::string s, bool yes) {
-	if (yes) return std::string("(") + s + std::string(")");
-	else return s;
-}
-
-template<typename O>
-std::string writeinplace(O op,
-		const std::vector<std::pair<std::string,int>> &subst,
-		bool leftassoc=true) {
-	int myprec = precidence(op);
-	if (subst.size()<=1) return subst[0].first;
-	std::string ret;
-	if (leftassoc) {
-		ret = putinparen(subst[0].first,subst[0].second>myprec);
-		for(int i=1;i<subst.size();i++)
-			ret += symbol(op) + putinparen(subst[i].first,subst[i].second>=myprec);
-	} else {
-		ret = putinparen(subst.back().first,subst.back().second>myprec);
-		for(int i=subst.size()-2;i>=0;i--)
-			ret += putinparen(subst[i].first,subst[i].second>=myprec) +
-				symbol(op) + ret;
-	}
-	return ret;
-}
-
-template<typename O>
-std::string writeprefixunary(O op,
-		const std::vector<std::pair<std::string,int>> &subst) {
-	return symbol(op) + putinparen(subst[0].first,subst[0].second>predicence(op));
-}
-
-template<typename O>
-std::string writeasfunc(O op,
-		const std::vector<std::pair<std::string,int>> &subst) {
-	std::string ret = symbol(op) + "(";
-	for(int i=0;i<subst.size();i++) {
-		if (i) ret += ",";
-		ret += subst[i].first;
-	}
-	return ret+")";
-}
 
 #endif

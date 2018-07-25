@@ -4,8 +4,8 @@ SINGIMG = feddev27.simg
 #CXX = singularity exec $(SINGIMG) g++
 #CC = singularity exec $(SINGIMG) gcc
 #LD = singularity exec $(SINGIMG) ld
-CFLAGS = -ggdb
-CXXFLAGS = -ggdb --std=c++17
+CXXFLAGS = -ggdb --std=c++2a
+#CXXFLAGS = -O3 --std=c++2a
 LDFLAGS = 
 LDLIBS = # -Lmylib
 

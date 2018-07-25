@@ -8,10 +8,12 @@
 #include <set>
 #include <map>
 #include <cmath>
+#include <cassert>
 
 // a type to represent no (sub)expression (as a leaf in an expression tree)
 // (often to represent an error or otherwise incomputable (sub)expression)
-struct noexprT {};
+//struct noexprT {};
+using noexprT = std::monostate;
 
 // constval holds a constant (as a leaf in an expression tree)
 template<typename T>
@@ -55,18 +57,35 @@ struct var : public std::shared_ptr<varinfo<T>> {
 		std::shared_ptr<varinfo<T>>(std::make_shared<varinfo<T>>(std::move(vi))) {}
 };
 
-template<typename> struct isvartype : public std::false_type { };
-template<typename T> struct isvartype<var<T>> : public std::true_type { };
 template<typename T>
-inline constexpr bool isvartype_v = isvartype<T>::value;
+inline constexpr bool isvartype_v = istmpl_v<var,T>;
+template<typename T>
+inline constexpr bool isconsttype_v = istmpl_v<constval,T>;
+template<typename T>
+inline constexpr bool isinvalid_v = std::is_same_v<T,std::monostate> || std::is_same_v<T,noexprT>;
 
 template<typename ...Ts>
-using leaf = std::variant<noexprT, constval<Ts>..., var<Ts>...>;
+struct exprleaf : public std::variant<noexprT, constval<Ts>..., var<Ts>...> {
+	using base_t = std::variant<noexprT, constval<Ts>..., var<Ts>...>;
+	using base_t::base_t;
+
+	using values_t = std::variant<Ts...>; // Ts cannot be empty!
+
+	base_t &asvariant() { return *this; }
+	const base_t &asvariant() const { return *this; }
+};
 
 template<typename ...OPs>
-using node = std::variant<std::monostate,OPs...>;
+struct exprnode : public std::variant<OPs...> {
+	using base_t = std::variant<OPs...>;
+	using base_t::base_t;
 
-// a type to record T without using a value
+	using ops_t = std::variant<OPs...>; // OPs cannot be empty
+	base_t &asvariant() { return *this; }
+	const base_t &asvariant() const { return *this; }
+};
+
+// a type to record the type T without using a value
 // used so that variant<typetype<A>,typetype<B>,typetype<C>>
 // can, at run time, keep track of a type (one of A, B, or C) without a value
 template<typename T>
@@ -74,8 +93,20 @@ struct typetype {};
 
 // An expression!  TV is a variant type containing all of the possible
 template<typename TV, typename OPV>
-using expr = gentree<repacknomonoadd_t<leaf,TV>,
-						repacknomonoadd_t<node,OPV>>;
+using expr = gentree<repack_t<exprleaf,TV>, repack_t<exprnode,OPV>>;
+
+template<typename E, typename LF, typename NF>
+auto exprfold(const E &e, LF lf, NF nf) {
+	return e.fold([&lf](const auto &l)
+					{ return std::visit(lf,l.asvariant());},
+				[&nf](const auto &node, auto &&chval)
+					{ return std::visit([&nf,&chval](auto &&n) {
+							return nf(std::forward<decltype(n)>(n),
+								std::forward<decltype(chval)>(chval));
+							},node.asvariant());
+					}
+				);
+}
 
 template<typename E>
 using exprmap = std::map<int,E>;
@@ -85,53 +116,51 @@ using optexprmap = std::optional<exprmap<E>>;
 template<typename T>
 struct expraccess {};
 
-template<typename TV, typename OPV>
-struct expraccess<gentree<repacknomonoadd_t<leaf,TV>,
-						repacknomonoadd_t<node,OPV>>> {
+template<typename LT, typename NT>
+struct expraccess<gentree<LT,NT>> {
+	using values_t = typename LT::values_t;
+	using valuestype_t = innerwrap_t<typetype,values_t>;
+	using anyvar_t = innerwrap_t<var,values_t>;
 
-	using valuetype = repacknomonoadd_t<std::variant,TV,noexprT>;
-	using valuetypetype = innerwrap_t<typetype,valuetype>;
-	using anyvartype = innerwrap_t<var,valuetype>;
+	using ops_t = typename NT::ops_t;
 
-	using leaftype = repacknomonoadd_t<leaf,TV>;
-	using nodetype = repacknomonoadd_t<node,OPV>;
-	using leafvarianttype = repack_t<variant,TV>;
-	using nodevarianttype = repack_t<variant,OPV>;
+	using leaftype = LT;
+	using nodetype = NT;
 };
 
 
 template<typename E>
-using exprvalue_t = typename expraccess<E>::valuetype;
+using exprvalue_t = typename expraccess<E>::values_t;
 template<typename E>
-using exprvaluetype_t = typename expraccess<E>::valuetypetype;
+using exprvaluetype_t = typename expraccess<E>::valuestype_t;
 template<typename E>
-using expranyvar_t = typename expraccess<E>::anyvartype;
+using expranyvar_t = typename expraccess<E>::anyvar_t;
 template<typename E>
 using exprleaf_t = typename expraccess<E>::leaftype;
 template<typename E>
+using exprop_t = typename expraccess<E>::ops_t;
+template<typename E>
 using exprnode_t = typename expraccess<E>::nodetype;
-template<typename E>
-using exprleafasvariant_t = typename expraccess<E>::leafvarianttype;
-template<typename E>
-using exprnodeasvariant_t = typename expraccess<E>::nodevarianttype;
 
 template<typename...>
-struct exprunion{};
+struct exprunion{
+	using type = expr<std::variant<std::monostate>,std::variant<std::monostate>>;
+};
 
 template<typename E>
 struct exprunion<E> {
-	using ltype = exprleafasvariant_t<E>;
-	using ntype = exprnodeasvariant_t<E>;
+	using vtype = exprvalue_t<E>;
+	using otype = exprop_t<E>;
 	using type = E;
 };
 
 template<typename E, typename... Es>
 struct exprunion<E,Es...> {
-	using ltype = variantunion_t<exprleafasvariant_t<E>,
-		 		typename exprunion<Es...>::ltype>;
-	using ntype = variantunion_t<exprnodeasvariant_t<E>,
-		 		typename exprunion<Es...>::ntype>;
-	using type = expr<ltype,ntype>;
+	using vtype = variantunion_t<exprvalue_t<E>,
+		 		typename exprunion<Es...>::vtype>;
+	using otype = variantunion_t<exprop_t<E>,
+		 		typename exprunion<Es...>::otype>;
+	using type = expr<vtype,otype>;
 };
 
 template<typename E, typename... Es>
@@ -149,12 +178,12 @@ E upgradeexpr(const Eret &e) {
 	return e.fold(
 			[](auto &&l) { // convert leafs to ltype
 				return E(upgradevariant<ltype>
-							(std::forward<decltype(l)>(l)));
+							(std::forward<decltype(l)>(l).asvariant()));
 			},
 			[](auto &&n, auto &&ch) { // convert nodes to ntype
 						// pass children on unchanged (already converted)
 				return E(upgradevariant<ntype>
-							(std::forward<decltype(n)>(n)),
+							(std::forward<decltype(n)>(n).asvariant()),
 						std::forward<decltype(ch)>(ch));
 			});
 }
@@ -169,11 +198,20 @@ auto buildexpr(const OP &node, Es &&...subexprs) {
 	}
 }
 
-template<typename VT, typename OP, typename ...Args>
-VT evalopdispatch(const OP &o, Args &&...args) {
-	return std::visit([&o](auto... params) -> VT {
-			return evalop(o,std::forward<decltype(params)>(params)...);
-		}, std::forward<Args>(args)...);
+template<typename O, typename... Cs>
+std::monostate evalop(const O &, Cs &&...) {
+	assert(false);
+}
+
+template<typename VT, typename OPV, typename ...Args>
+VT evalopdispatch(const OPV &ov, Args &&...args) {
+	return std::visit([](auto &&o, auto &&...params) -> VT {
+		if constexpr ((... || (std::is_same_v<std::monostate,
+							std::decay_t<decltype(params)>>)))
+			return std::monostate{};
+		else return evalop(std::forward<decltype(o)>(o),
+						std::forward<decltype(params)>(params)...);
+		}, ov, std::forward<Args>(args)...);
 }
 
 // assumes that the types are closed under the operations!
@@ -187,33 +225,34 @@ exprvalue_t<E> eval(const E &e) {
 					return a.v;
 				else return noexprT{};
 			}
-			, e.asleaf());
+			, e.asleaf().asvariant());
 	} else {
 		// support up to 4-arg hetrogeneous operators:
-		auto &op = e.asnode();
-		switch(e.children.size()) {
-			case 0: return evalopdispatch<rett>(op);
-			case 1: return evalopdispatch<rett>(op,eval(e.children[0]));
-			case 2: return evalopdispatch(op,
-						   eval(e.children[0]),
-						   eval(e.children[1]));
-			case 3: return evalopdispatch<rett>(op,
-						   eval(e.children[0]),
-						   eval(e.children[1]),
-						   eval(e.children[2]));
-			case 4: return evalopdispatch<rett>(op,
-						   eval(e.children[0]),
-						   eval(e.children[1]),
-						   eval(e.children[2]),
-						   eval(e.children[3]));
+		auto &opv = e.asnode().asvariant();
+		auto &ch = e.children();
+		switch(ch.size()) {
+			case 0: return evalopdispatch<rett>(opv);
+			case 1: return evalopdispatch<rett>(opv,eval(ch[0]));
+			case 2: return evalopdispatch<rett>(opv,
+						   eval(ch[0]),
+						   eval(ch[1]));
+			case 3: return evalopdispatch<rett>(opv,
+						   eval(ch[0]),
+						   eval(ch[1]),
+						   eval(ch[2]));
+			case 4: return evalopdispatch<rett>(opv,
+						   eval(ch[0]),
+						   eval(ch[1]),
+						   eval(ch[2]),
+						   eval(ch[3]));
 			default: {
 				std::vector<rett> ceval; // don't do this generally
 						// to avoid memory alloc
-				for(auto &&c : e.children())
+				for(auto &&c : ch)
 					ceval.emplace_back(eval(c));
 				return std::visit([&ceval](auto &&op) -> rett {
 						return evalop(std::forward<decltype(op)>(op),
-								ceval); },op);
+								ceval); },opv);
 		    }
 		}
 	}
@@ -270,7 +309,7 @@ expranyvar_t<E> getvar(const E &e) {
 					return a;
 				else return var<noexprT>{};
 			}
-			, e.asleaf());
+			, e.asleaf().asvariant());
 }
 
 template<typename OP, typename E>
@@ -293,7 +332,7 @@ bool isconst(const E &e) {
 	return e.isleaf() && std::visit([](auto &&a) {
 			return (isconstvaltype_v<std::decay_t<decltype(a)>>);
 			}
-		, e.asleaf());
+		, e.asleaf().asvariant());
 }
 
 template<typename E>
@@ -301,7 +340,7 @@ bool isvar(const E &e) {
 	return e.isleaf() && std::visit([](auto &&a) {
 			return (isvartype_v<std::decay_t<decltype(a)>>);
 			}
-		, e.asleaf());
+		, e.asleaf().asvariant());
 }
 
 template<typename E>

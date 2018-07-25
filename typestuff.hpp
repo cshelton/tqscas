@@ -40,6 +40,19 @@ constexpr bool isderivtype(const std::variant<Ts...> &v) {
 
 //----
 
+// checks if T == Tmpl<X> for some X
+template<template<typename> typename Tmpl, typename T>
+struct istmpl : std::false_type {};
+
+template<template<typename> typename Tmpl, typename... X>
+struct istmpl<Tmpl,Tmpl<X...>> : std::true_type{};
+
+template<template<typename> typename Tmpl, typename T>
+inline constexpr bool istmpl_v = istmpl<Tmpl,T>::value;
+
+
+//----
+
 // V1 and V2 should be std::variant<...>
 // checks to see if they are currently holding the same type
 template<typename V1, typename V2>
@@ -64,6 +77,7 @@ constexpr bool sametypeswrap(const V1 &v1, const V2 &v2) {
 
 //----
 
+/* // TODO: remove completely
 // Does this exist in C++17 -- check
 
 template<typename>
@@ -76,6 +90,7 @@ struct tmplparam<T<TT>> {
 
 template<typename T>
 using tmplparam_t = typename tmplparam<T>::type;
+*/
 
 //----
 // to change variant<A,B,C> into variant<T<A>,T<B>,T<C>>
@@ -110,6 +125,7 @@ template<template<typename...> typename T, typename... Args>
 using repack_t = typename repack<T,Args...>::type;
 
 
+/* TODO: remove completely
 
 template<template<typename...> typename T, typename A, typename... Adds>
 struct repacknomonoadd;
@@ -137,6 +153,7 @@ struct repacknomonoadd<T, std::variant<Args...>, Adds...> {
 
 template<template<typename...> typename T, typename... Args>
 using repacknomonoadd_t = typename repacknomonoadd<T,Args...>::type;
+*/
 
 //-----
 

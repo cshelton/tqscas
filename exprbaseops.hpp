@@ -7,17 +7,17 @@
  *
  * If OP is the type, it should support
  *
- * auto evalop(const OP &, args)
+ * auto evalop(const OP &, args...)
  * 		should perform the op for whatever underlying types it allows
  * std::string symbol(const OP &)
  * 		returns a symbol to be used in a tree layout of an expr
  * int precedence(const OP &) 
- * 		returns precidence (smaller binds more tightly)
+ * 		returns precedence (smaller binds more tightly)
  * std::string write(const OP &,const std::vector<std::pair<std::string,int>> &)
  * 		returns a string (written representation) of the expression 
  * 		tree rooted at OP. The second argument is the string for each
- * 		child and its precidence
- * 		(precidence=0 implies a variable or constant)
+ * 		child and its precedence
+ * 		(precedence=0 implies a variable or constant)
  */
 
 
@@ -47,7 +47,7 @@ std::string write(opbinarychain<BASEOP,leftassoc>,
 		const std::vector<std::pair<std::string,int>> &subst) {
 	using vpsi = std::vector<std::pair<std::string,int>>;
 	if (subst.size()<=2) return write(BASEOP(),subst);
-	int myprec = precidence(BASEOP());
+	int myprec = precedence(BASEOP());
 	if (leftassoc) {
 		std::string ret = write(BASEOP(),vpsi{subst[0],subst[1]});
 		for(int i=2;i<subst.size();i++)

@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include "typetostr.hpp"
+#include "exprtostr.hpp"
 
 using namespace std;
 
@@ -65,6 +66,14 @@ ostream &operator<<(ostream &os, const variant<T, Ts...> &v) {
 	return visit([&os](auto &&x) -> ostream & { return os << x; }, v);
 }
 
+template<typename E>
+void dumpexpr(const E &e) {
+	cout << typetostr<decay_t<decltype(e)>>() << endl;
+	cout << to_string(e) << endl;
+	cout << eval(e) << endl;
+	cout << draw(e) << endl;
+}
+
 int main(int argc, char **argv) {
 	auto i = newvar<long long>("i"), j = newvar<long long>("j");
 
@@ -76,11 +85,11 @@ int main(int argc, char **argv) {
 	auto e4 = buildexpr(myop{},e3,e2);
 	auto e5 = buildexpr(myop{},e2,e3);
 
-	auto v2 = eval(e2);
-	cout << v2 << endl;
-	cout << eval(e3) << endl;
-	cout << eval(e4) << endl;
-	cout << eval(e5) << endl;
+	dumpexpr(e1);
+	dumpexpr(e2);
+	dumpexpr(e3);
+	dumpexpr(e4);
+	dumpexpr(e5);
 
 	auto ii = newvar<int>("ii"), ji = newvar<int>("ji");
 	auto ki1 = newconst(1), ki2 = newconst(2);
@@ -89,19 +98,12 @@ int main(int argc, char **argv) {
 	auto e7 = buildexpr(myop{},k1,k2);
 	auto e8 = buildexpr(myop{},e6,e7);
 	auto e9 = buildexpr(myop{},e8,ki2);
-	cout << eval(e6) << endl;
-	cout << typetostr<decltype(e6)>() << endl;
-	cout << eval(e7) << endl;
-	cout << typetostr<decltype(e7)>() << endl;
-	cout << eval(e8) << endl;
-	cout << typetostr<decltype(e8)>() << endl;
-	cout << eval(e9) << endl;
-	cout << typetostr<decltype(e9)>() << endl;
-
-
 	auto e10 = buildexpr(myop2{},e7,e6);
-	cout << eval(e10) << endl;
-	cout << typetostr<decltype(e10)>() << endl;
+	dumpexpr(e6);
+	dumpexpr(e7);
+	dumpexpr(e8);
+	dumpexpr(e9);
+	dumpexpr(e10);
 
 
 	
