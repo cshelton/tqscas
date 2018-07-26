@@ -56,5 +56,28 @@ ALLOWEXPRFROM1(logop,log)
 ALLOWEXPRFROM2(powop,pow)
 
 
+// builds the expression y|_{x=z}  (yes, the ordering is weird... maybe change?)
+template<typename X, typename Y, typename Z,
+	std::enable_if_t<isexpr_v<std::decay<X>>,int> = 0>
+auto evalat(X &&x, Y &&y, Z &&z) {
+	using YT = std::decay_t<Y>;
+	using ZT = std::decay_t<Z>;
+	if constexpr (isexpr_v<YT> && isexpr_v<ZT>)
+		return buildexpr(evalatop{},std::forward<X>(x),
+				std::forward<Y>(y),std::forward<Z>(z));
+	else if constexpr (isexpr_v<ZT>)
+		return buildexpr(evalatop{},std::forward<X>(x),
+					newconst<YT>(std::forward<Y>(y)),
+					std::forward<Z>(z));
+	else if constexpr (isexpr_v<YT>)
+		return buildexpr(evalatop{},std::forward<X>(x),
+					std::forward<Y>(y),
+					newconst<YT>(std::forward<Z>(z)));
+	else return buildexpr(evalatop{},std::forward<X>(x),
+					newconst<YT>(std::forward<Y>(y)),
+					newconst<YT>(std::forward<Z>(z)));
+}
+
+
 
 #endif

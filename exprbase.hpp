@@ -179,9 +179,11 @@ using expr1op_t = expr<std::variant<std::monostate>,std::variant<OP>>;
 
 template<typename E, typename Eret>
 E upgradeexpr(const Eret &e) {
-	using ltype = exprleaf_t<E>;
-	using ntype = exprnode_t<E>;
-	return e.fold(
+	if constexpr (std::is_same_v<E,Eret>) return e;
+	else {
+		using ltype = exprleaf_t<E>;
+		using ntype = exprnode_t<E>;
+		return e.fold(
 			[](auto &&l) { // convert leafs to ltype
 				return E(upgradevariant<ltype>
 							(std::forward<decltype(l)>(l).asvariant()));
@@ -192,21 +194,29 @@ E upgradeexpr(const Eret &e) {
 							(std::forward<decltype(n)>(n).asvariant()),
 						std::forward<decltype(ch)>(ch));
 			});
+	}
 }
 
 template<typename OP, typename... Es>
 auto buildexpr(const OP &node, Es &&...subexprs) {
 	using rett = exprunion_t<expr1op_t<OP>,std::decay_t<Es>...>;
-	if constexpr ((... && (std::is_same_v<rett,Es>))) {
-		return rett(node,std::forward<Es>(subexprs)...);
-	} else { // must "upgrade" some/all of the subexprs
-		return rett(node,upgradeexpr<rett>(subexprs)...);
-	}
+	return rett(node,upgradeexpr<rett>(subexprs)...);
 }
 
 // takes an op and the args (in raw type), returns the value of the op
 // applied to the args (in raw type)
 std::monostate evalop(...) {
+	assert(false);
+}
+
+// takes an op and the subtree and evaluates it
+// (not performed unless pretraverseop(OP) is true, in which case
+//  evalop is not used, but this instead.  It is up to the OP to
+//  call eval on the subtrees as needed)
+// mainly, this is used for things like evalatop (which makes a 
+//  substitution) or sum (which iterates its subexpr with different
+//  values of a locally scoped variable)
+std::monostate evaloppre(...) {
 	assert(false);
 }
 
@@ -216,6 +226,8 @@ template<typename VT>
 VT evalopvec(...) {
 	assert(false);
 }
+
+constexpr bool pretraverseop(...) { return false; }
 
 template<typename VT, typename OP, typename ...Args>
 auto evalopdispatchknownop(const OP &o, Args &&...args) {
@@ -239,6 +251,14 @@ VT evalopdispatch(const OPV &ov, Args &&...args) {
 		}, ov, std::forward<Args>(args)...);
 }
 
+template<typename VT, typename OPV, typename ...Args>
+VT evalopdispatchpre(const OPV &ov, Args &&...args) {
+	return std::visit([&args...](auto &&o) -> VT {
+		return evaloppre(std::forward<decltype(o)>(o),
+						std::forward<Args>(args)...);
+		}, ov);
+}
+
 // assumes that the types are closed under the operations!
 // (otherwise return type would be different)
 template<typename E>
@@ -255,31 +275,55 @@ exprvalue_t<E> eval(const E &e) {
 		// support up to 4-arg hetrogeneous operators:
 		auto &opv = e.asnode().asvariant();
 		auto &ch = e.children();
-		switch(ch.size()) {
-			case 0: return evalopdispatch<rett>(opv);
-			case 1: return evalopdispatch<rett>(opv,eval(ch[0]));
-			case 2: return evalopdispatch<rett>(opv,
-						   eval(ch[0]),
-						   eval(ch[1]));
-			case 3: return evalopdispatch<rett>(opv,
-						   eval(ch[0]),
-						   eval(ch[1]),
-						   eval(ch[2]));
-			case 4: return evalopdispatch<rett>(opv,
-						   eval(ch[0]),
-						   eval(ch[1]),
-						   eval(ch[2]),
-						   eval(ch[3]));
-			default: {
-				std::vector<rett> ceval; // don't do this generally
-						// to avoid memory alloc
-				for(auto &&c : ch)
-					ceval.emplace_back(eval(c));
-				return std::visit([&ceval](auto &&op) -> rett {
-						return evalopvec<rett>(
-								std::forward<decltype(op)>(op),
-								ceval); },opv);
-		    }
+		if (std::visit([](auto &&op) { return pretraverseop(op); },opv)) {
+			switch(ch.size()) {
+				case 0: return evalopdispatchpre<rett>(opv);
+				case 1: return evalopdispatchpre<rett>(opv,ch[0]);
+				case 2: return evalopdispatchpre<rett>(opv,
+							   ch[0],
+							   ch[1]);
+				case 3: return evalopdispatchpre<rett>(opv,
+							   ch[0],
+							   ch[1],
+							   ch[2]);
+				case 4: return evalopdispatchpre<rett>(opv,
+							   ch[0],
+							   ch[1],
+							   ch[2],
+							   ch[3]);
+				default: return std::visit([&ch](auto &&op)->rett {
+							    return evalopvec<rett>(
+								    std::forward<decltype(op)>(op),
+								    ch); },opv);
+			}
+		} else {
+			switch(ch.size()) {
+				case 0: return evalopdispatch<rett>(opv);
+				case 1: return evalopdispatch<rett>(opv,eval(ch[0]));
+				case 2: return evalopdispatch<rett>(opv,
+							   eval(ch[0]),
+							   eval(ch[1]));
+				case 3: return evalopdispatch<rett>(opv,
+							   eval(ch[0]),
+							   eval(ch[1]),
+							   eval(ch[2]));
+				case 4: return evalopdispatch<rett>(opv,
+							   eval(ch[0]),
+							   eval(ch[1]),
+							   eval(ch[2]),
+							   eval(ch[3]));
+				default: {
+						    std::vector<rett> ceval;
+						    // don't do this generally
+						    // to avoid memory alloc
+						    for(auto &&c : ch)
+							    ceval.emplace_back(eval(c));
+						    return std::visit([&ceval](auto &&op)->rett {
+								    return evalopvec<rett>(
+									    std::forward<decltype(op)>(op),
+									    ceval); },opv);
+					    }
+			}
 		}
 	}
 }
@@ -325,8 +369,19 @@ E newvar() {
 
 template<typename T, typename E=expr1type_t<T>>
 E newconst(const T &v) {
-	return E{constval{v}};
+	return E{constval<T>{v}};
 }
+
+template<typename TV, typename E=expr<TV,std::variant<std::monostate>>>
+E newconstfromeval(TV v) {
+	return std::visit([](auto &&v) { // decay below is bad if
+							// expression tree is to hold
+							// references or const, but that
+							// seems unlikely use??
+			return E{constval<std::decay_t<decltype(v)>>
+						{std::forward<decltype(v)>(v)}}; },v);
+}
+
 
 template<typename E>
 expranyvar_t<E> getvar(const E &e) {
@@ -463,6 +518,28 @@ bool isnonconstexpr(const E &e,
 		const std::optional<vset_t<E>> &vars = {}) {
 	vset_t<E> ex;
 	return isnonconstexpr1(e,vars,ex);
+}
+
+template<typename T1, typename T2, typename=void>
+struct haseq : std::false_type {};
+template<typename T1, typename T2>
+struct haseq<T1,T2,
+	std::void_t<decltype((std::declval<T1>())==(std::declval<T2>()))>>
+		: std::true_type {};
+
+template<typename E1, typename E2>
+bool exprsame(const E1 &e1, const E2 &e2) {
+	return e1.sameas(e2,
+		[](const auto &l1, const auto &l2) {
+			return std::visit([](const auto &v1, const auto &v2) {
+					if constexpr (haseq<decltype(v1),decltype(v2)>::value) 
+						return v1==v2;
+					else return false;
+					},l1.asvariant(),l2.asvariant()); },
+		[](const auto &n1, const auto &n2) {
+			return std::visit([](const auto &v1, const auto &v2) {
+					return std::is_same_v<decltype(v1),decltype(v2)>;
+					},n1.asvariant(),n2.asvariant()); });
 }
 
 #endif

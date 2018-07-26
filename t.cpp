@@ -6,6 +6,7 @@
 #include "typestuff.hpp"
 #include <string>
 #include <cmath>
+#include <type_traits>
 
 struct A {};
 struct B {};
@@ -60,6 +61,26 @@ void checkrem(int a, int b) {
 	std::cout << a << 'r' << b << '=' << std::remainder(a,b) << std::endl;
 }
 
+void foo(int,int) {}
+void foo(std::string,int) {}
+
+template<typename, typename = void>
+struct foookay : std::false_type {};
+template<typename... Args>
+struct foookay<std::tuple<Args...>,
+     std::void_t<decltype(foo(std::declval<Args>()...))>>
+          : std::true_type {};
+
+template<typename... Args>
+inline constexpr bool foookay_v = foookay<std::tuple<Args...>,void>::value;
+
+
+bool hasplus(...) { return false; }
+
+template<typename T, int_t<decltype(std::declval<T>()+std::declval<T>())> = 0>
+bool hasplus(T) { return true; }
+
+
 int main(int argc, char **argv) {
 	using namespace std;
 	cout << is_same_v<A,B> << ' ' << is_same_v<B,C> << endl;
@@ -87,4 +108,10 @@ int main(int argc, char **argv) {
 	checkrem(-7,3);
 	checkrem(-7,-3);
 
+	cout << foookay_v<int,int> << ' ' << foookay_v<std::string,std::string> << endl;
+	cout << foookay_v<int,int> << ' ' << foookay_v<std::string,int> << endl;
+
+	cout << hasplus(5) << endl;
+	cout << hasplus(std::string{}) << endl;
+	cout << hasplus(A{}) << endl;
 }

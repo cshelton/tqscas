@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include "typetostr.hpp"
+#include <type_traits>
 
 using namespace std;
 
@@ -26,7 +27,8 @@ auto intconcat(T x, S y) {
 	return raise(x,ndigits(y))+y;
 }
 
-template<typename T, typename S>
+template<typename T, typename S,
+	std::enable_if_t<std::is_integral_v<T> && std::is_integral_v<S>,int> =0>
 auto evalop(const myop &, T x, S y) {
 	return intconcat(intconcat(9,intconcat(x,y)),9);
 }
@@ -41,7 +43,8 @@ int precedence(const myop &) {
 
 struct myop2 {};
 
-template<typename T, typename S>
+template<typename T, typename S,
+	int_t<decltype(std::declval<T>()+std::declval<S>())> =0>
 auto evalop(const myop2 &, T x, S y) {
 	return x+y;
 }
@@ -102,6 +105,22 @@ int main(int argc, char **argv) {
 	auto e10 = buildexpr(myop2{},e7,e6);
 	cout << eval(e10) << endl;
 	cout << typetostr<decltype(e10)>() << endl;
+
+/*
+	cout << exprsame(e10,e10) << ' ' << exprsame(e3,e10) << ' ' << exprsame(e1,e1) << endl;
+
+	cout << exprsame(buildexpr(myop{},i,j),buildexpr(myop{},i,j)) << endl;
+	cout << exprsame(buildexpr(myop{},i,j),buildexpr(myop2{},i,j)) << endl;
+	cout << exprsame(buildexpr(myop{},i,buildexpr(myop{},j,k1)),
+				buildexpr(myop{},i,k1)) << endl;
+	cout << exprsame(buildexpr(myop{},i,buildexpr(myop{},j,k1)),
+				buildexpr(myop{},i,buildexpr(myop{},j,k1))) << endl;
+	cout << exprsame(buildexpr(myop{},i,buildexpr(myop{},j,k2)),
+				buildexpr(myop{},i,buildexpr(myop{},j,k1))) << endl;
+	cout << exprsame(buildexpr(myop{},i,buildexpr(myop{},j,k2)),
+				buildexpr(myop{},ii,buildexpr(myop{},ji,ki2))) << endl;
+*/
+
 
 
 	

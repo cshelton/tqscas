@@ -202,17 +202,16 @@ class gentree {
 		}
 
 		// belong here or need a different fold?
-		bool sameas(const gentree &t) const {
+		template<typename LT2, typename NT2, typename Lcmp, typename Ncmp>
+		bool sameas(const gentree<LT2,NT2> &t,
+				Lcmp &&lcmp, Ncmp &&ncmp) const {
 			if (!(isleaf()==t.isleaf())) return false;
-			if (isleaf()) 
-				return std::get<leafT>(*root)==std::get<leafT>(*t.root);
-			const nodeT &n = std::get<nodeT>(*root);
-			const nodeT &tn = std::get<nodeT>(*t.root);
-			if (!(asnode() == t.asnode())) return false;
+			if (isleaf()) return lcmp(asleaf(),t.asleaf());
+			if (!(ncmp(asnode(),t.asnode()))) return false;
 			auto ch = children(), tch = t.children();
 			if (ch.size() != tch.size()) return false;
 			for(int i=0;i<ch.size();i++)
-				if (!(ch[i].sameas(tch[i]))) return false;
+				if (!(ch[i].sameas(tch[i],lcmp,ncmp))) return false;
 			return true;
 		}
 

@@ -1,6 +1,7 @@
 Current (miopic) list:
 	- Add specialization of rewrites by list of vars
 	- Make constants e and pi remain as such (instead of converting to double when eval)
+	- shoudl "const xxxop &" be changed to "xxxop" (to make passing faster?)
 
 Longer / Maybe:
 	- fix conversion of constant to expr (??) -- how to have exprs of exprs then?

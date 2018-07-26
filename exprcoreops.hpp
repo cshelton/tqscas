@@ -110,43 +110,34 @@ struct evalatop : public scopeop {};
 	// 3 children: v, e, val
 	// represents evaluating e where variable v (locally to e)
 	// 			is replaced by val (which can be a full expr)
+	// (v first b/c this is a "scopeop" and so it must be)
 
-constexpr int precedence(evalatop) {
-	return 3;
+constexpr int precedence(const evalatop &) {
+	return 3; // is this right?
 }
 
-std::string symbol(evalatop) {
+std::string symbol(const evalatop &) {
 	return "|_";
 }
 
-std::string write(evalatop,
+std::string write(const evalatop &o,
 		const std::vector<std::pair<std::string,int>> &subst) {
-	if (subst[1].second>=3)
-		return std::string("(")+subst[1].first+std::string(")")
-			+"|_{"+subst[0].first+"="+subst[2].first+"}";
-	else
-		return subst[1].first
-			+"|_{"+subst[0].first+"="+subst[2].first+"}";
-	/*
-	return putinparen(subst[1].first,subst[1].second>=3)
+	return putinparen(subst[1].first,subst[1].second>=precedence(o))
 		+"|_{"+subst[0].first+"="+subst[2].first+"}";
-	*/
 }
 
+constexpr bool pretraverseop(const evalatop &) { return true; }
+
 template<typename E>
-auto evalop(evalatop, const E &v, const E &expr, const E &val) {
-    E valval{eval(val)};
+auto evaloppre(const evalatop &, const E &v, const E &expr, const E &val) {
+	auto valval = eval(val);
+	E newval = newconstfromeval<decltype(valval),E>(std::move(valval));
     // could use substitute (from exprsubst.hpp), but that might
     // create circular dependencies (???)
-    return eval(expr.map([v,valval](const E &ex) {
-			    if (ex.sameas(v)) return std::optional<E>{valval};
+    return eval(expr.map([v,newval](const E &ex) {
+			    if (exprsame(ex,v)) return std::optional<E>{newval};
 			    return std::optional<E>{};
 			    }));
-}
-
-template<typename E>
-E evalat(const E &e, const E &localx, const E &x) {
-	return {evalatop(),localx,e,x};
 }
 
 #endif

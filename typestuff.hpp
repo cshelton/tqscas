@@ -7,6 +7,17 @@
 #include <typeinfo>
 #include <typeindex>
 
+// would like to use
+/*
+template<typename...>
+using int_t = int;
+*/
+// but must use
+template<typename...> struct make_int { typedef int type; };
+template<typename...Ts> using int_t = typename make_int<Ts...>::type;
+// because of CWG 1558 (see https://en.cppreference.com/w/cpp/types/void_t)
+// until compiler fixes it
+
 template<typename T>
 struct variantfirst {};
 
@@ -158,6 +169,11 @@ using repacknomonoadd_t = typename repacknomonoadd<T,Args...>::type;
 //-----
 
 // variant types as sets of types
+// TODO: might want to sort, but difficult (impossible) to find general
+//  ordering on types without registering types
+// see https://stackoverflow.com/questions/48723974/how-to-order-types-at-compile-time for clang and gcc specific method
+// (why sort?  So that variant<int,char> and variant<char,int> don't
+//  look different and cause conversions)
 
 template<typename T, typename... Ts>
 struct ismem { static constexpr bool value = false; };

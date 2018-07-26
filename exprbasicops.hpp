@@ -19,7 +19,9 @@ struct powop {};
 struct logop {};
 
 // addition:
-template<typename T1, typename T2>
+template<typename T1, typename T2,
+	int_t<decltype(std::declval<std::decay_t<T1>>() +
+			std::declval<std::decay_t<T2>>())> = 0>
 auto evalop(const addop &, T1 &&v1, T2 &&v2) {
 	return std::forward<T1>(v1)+std::forward<T2>(v2);
 }
@@ -27,15 +29,19 @@ std::string symbol(const addop &) { return "+"; }
 int precedence(const addop &) { return 6; }
 
 // subtraction:
-template<typename T1, typename T2>
+template<typename T1, typename T2,
+	int_t<decltype(std::declval<std::decay_t<T1>>() -
+			std::declval<std::decay_t<T2>>())> = 0>
 auto evalop(const subop &, T1 &&v1, T2 &&v2) {
 	return std::forward<T1>(v1)-std::forward<T2>(v2);
 }
 std::string symbol(const subop &) { return "-"; }
 int precedence(const subop &) { return 6; }
 
-// mulitiplcation:
-template<typename T1, typename T2>
+// multiplcation:
+template<typename T1, typename T2,
+	int_t<decltype(std::declval<std::decay_t<T1>>() *
+			std::declval<std::decay_t<T2>>())> = 0>
 auto evalop(const mulop &, T1 &&v1, T2 &&v2) {
 	return std::forward<T1>(v1)*std::forward<T2>(v2);
 }
@@ -43,7 +49,9 @@ std::string symbol(const mulop &) { return "*"; }
 int precedence(const mulop &) { return 5; }
 
 // division:
-template<typename T1, typename T2>
+template<typename T1, typename T2,
+	int_t<decltype(std::declval<std::decay_t<T1>>() /
+			std::declval<std::decay_t<T2>>())> = 0>
 auto evalop(const divop &, T1 &&v1, T2 &&v2) {
 	return std::forward<T1>(v1)/std::forward<T2>(v2);
 }
@@ -87,7 +95,8 @@ int precedence(const remop &) { return 5; }
 */
 
 // negation:
-template<typename T1>
+template<typename T1, typename T2,
+	int_t<decltype(-std::declval<std::decay_t<T1>>())> = 0>
 auto evalop(const negop&, T1 &&v1) {
 	return -std::forward<T1>(v1);
 }
@@ -101,9 +110,17 @@ template<typename T1, typename T2>
 struct havepow<T1,T2,
 	std::void_t<decltype(pow(std::declval<T1>(),std::declval<T2>()))>>
 		: std::true_type {};
+template<typename T1, typename T2, typename=void>
+struct havestdpow : std::false_type {};
 template<typename T1, typename T2>
+struct havestdpow<T1,T2,
+	std::void_t<decltype(std::pow(std::declval<T1>(),std::declval<T2>()))>>
+		: std::true_type {};
+template<typename T1, typename T2,
+	std::enable_if_t<havepow<std::decay_t<T1>,std::decay_t<T2>>::value
+		|| havestdpow<std::decay_t<T1>,std::decay_t<T2>>::value,int> = 0>
 auto evalop(const powop &, T1 &&v1, T2 &&v2) {
-	if constexpr(havepow<T1,T2>::value)
+	if constexpr(havepow<std::decay_t<T1>,std::decay_t<T2>>::value)
 		return pow(std::forward<T1>(v1),std::forward<T2>(v2));
 	else return std::pow(std::forward<T1>(v1),std::forward<T2>(v2));
 }
@@ -119,9 +136,16 @@ struct haslog: std::false_type {};
 template<typename T1>
 struct haslog<T1, std::void_t<decltype(log(std::declval<T1>()))>>
 		: std::true_type {};
+template<typename T1, typename=void>
+struct hasstdlog: std::false_type {};
 template<typename T1>
+struct hasstdlog<T1, std::void_t<decltype(std::log(std::declval<T1>()))>>
+		: std::true_type {};
+template<typename T1, 
+	std::enable_if_t<haslog<std::decay_t<T1>>::value
+		|| hasstdlog<std::decay_t<T1>>::value,int> = 0>
 auto evalop(const logop &, T1 &&v1) {
-	if constexpr(haslog<T1>::value)
+	if constexpr(haslog<std::decay_t<T1>>::value)
 		return log(std::forward<T1>(v1));
 	else return std::log(std::forward<T1>(v1));
 }
