@@ -170,6 +170,9 @@ struct ismem<T,U,Ts...> {
 		ismem<T,Ts...>>::type::value;
 };
 
+template<typename T, typename... Ts>
+inline constexpr bool ismem_v = ismem<T,Ts...>::value;
+
 template<typename, typename...>
 struct variantunionhelp {};
 
@@ -181,7 +184,7 @@ struct variantunionhelp<std::variant<Ts...>> {
 template<typename... Ts, typename U, typename... Us>
 struct variantunionhelp<std::variant<Ts...>,U,Us...> {
 	using type = typename std::conditional<
-		ismem<U,Ts...>::value,
+		ismem_v<U,Ts...>,
 		typename variantunionhelp<std::variant<Ts...>,Us...>::type,
 		typename variantunionhelp<std::variant<Ts...,U>,Us...>::type>::type;
 };

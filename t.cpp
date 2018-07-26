@@ -5,6 +5,7 @@
 #include <vector>
 #include "typestuff.hpp"
 #include <string>
+#include <cmath>
 
 struct A {};
 struct B {};
@@ -54,6 +55,11 @@ std::string tostring(const T &x) {
 	else return to_string(x);
 }
 
+void checkrem(int a, int b) {
+	std::cout << a << '%' << b << '=' << (a%b) << std::endl;
+	std::cout << a << 'r' << b << '=' << std::remainder(a,b) << std::endl;
+}
+
 int main(int argc, char **argv) {
 	using namespace std;
 	cout << is_same_v<A,B> << ' ' << is_same_v<B,C> << endl;
@@ -67,5 +73,18 @@ int main(int argc, char **argv) {
 	cout << istmpl_v<std::variant,std::variant<int,bool,double>> << endl;
 
 	cout << tostring(3) << ' ' << tostring(5.4) << ' ' << tostring(C{}) << ' ' << tostring(A{}) << endl;
+
+	checkrem(5,3);
+	checkrem(5,-3);
+	checkrem(-5,3);
+	checkrem(-5,-3);
+	checkrem(6,3);
+	checkrem(6,-3);
+	checkrem(-6,3);
+	checkrem(-6,-3);
+	checkrem(7,3);
+	checkrem(7,-3);
+	checkrem(-7,3);
+	checkrem(-7,-3);
 
 }

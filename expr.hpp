@@ -2,7 +2,7 @@
 #define EXPR_H
 
 #include "exprbase.hpp"
-#include "exprbaseops.hpp"
+#include "exprcoreops.hpp"
 #include "exprtostr.hpp"
 #include "exprsubst.hpp"
 #include "exprmatch.hpp"

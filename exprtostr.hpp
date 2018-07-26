@@ -9,19 +9,19 @@
 std::string to_string(const std::monostate &) { return std::string(""); }
 
 template<typename T, typename = void>
-struct hasstdtostring : std::false_type {};
+struct hasmytostring : std::false_type {};
 
 template<typename T>
-struct hasstdtostring<T,std::void_t<
-		decltype(std::to_string(std::declval<T>()))>> : std::true_type {};
+struct hasmytostring<T,std::void_t<
+		decltype(to_string(std::declval<T>()))>> : std::true_type {};
 
 template<typename T>
-inline constexpr bool hasstdtostring_v = hasstdtostring<T>::value;
+inline constexpr bool hasmytostring_v = hasmytostring<T>::value;
 
 template<typename T>
 std::string tostring(const T &x) {
-	if constexpr (hasstdtostring_v<T>) return std::to_string(x);
-	else return to_string(x);
+	if constexpr (hasmytostring_v<T>) return to_string(x);
+	else return std::to_string(x);
 }
 
 // this should be overloaded!

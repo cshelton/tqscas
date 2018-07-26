@@ -114,7 +114,9 @@ template<typename E>
 using optexprmap = std::optional<exprmap<E>>;
 
 template<typename T>
-struct expraccess {};
+struct expraccess {
+	static constexpr bool isexpr = false;
+};
 
 template<typename LT, typename NT>
 struct expraccess<gentree<LT,NT>> {
@@ -126,6 +128,8 @@ struct expraccess<gentree<LT,NT>> {
 
 	using leaftype = LT;
 	using nodetype = NT;
+
+	static constexpr bool isexpr = istmpl_v<exprleaf,LT> && istmpl_v<exprnode,NT>;
 };
 
 
@@ -141,6 +145,8 @@ template<typename E>
 using exprop_t = typename expraccess<E>::ops_t;
 template<typename E>
 using exprnode_t = typename expraccess<E>::nodetype;
+template<typename T>
+inline constexpr bool isexpr_v = expraccess<T>::isexpr;
 
 template<typename...>
 struct exprunion{
