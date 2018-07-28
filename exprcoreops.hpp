@@ -112,6 +112,15 @@ struct evalatop : public scopeop {};
 	// 			is replaced by val (which can be a full expr)
 	// (v first b/c this is a "scopeop" and so it must be)
 
+template<typename E>
+bool isscope(const E &e) {
+	return !e.isleaf() &&
+		std::visit([](const auto &v) {
+				return std::is_base_of_v<scopeop,
+					std::decay_t<decltype(v)>>;
+					},e.asnode().asvariant());
+}
+
 constexpr int precedence(const evalatop &) {
 	return 3; // is this right?
 }
@@ -132,12 +141,12 @@ template<typename E>
 auto evaloppre(const evalatop &, const E &v, const E &expr, const E &val) {
 	auto valval = eval(val);
 	E newval = newconstfromeval<decltype(valval),E>(std::move(valval));
-    // could use substitute (from exprsubst.hpp), but that might
-    // create circular dependencies (???)
-    return eval(expr.map([v,newval](const E &ex) {
-			    if (exprsame(ex,v)) return std::optional<E>{newval};
-			    return std::optional<E>{};
-			    }));
+	// could use substitute (from exprsubst.hpp), but that might
+	// create circular dependencies (???)
+	return eval(expr.map([v,newval](const E &ex) {
+				if (exprsame(ex,v)) return std::optional<E>{newval};
+				else return std::optional<E>{};
+			}));
 }
 
 #endif

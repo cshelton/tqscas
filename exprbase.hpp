@@ -26,6 +26,14 @@ struct constval {
 	constval(T &&vv) : v(std::move(vv)) {}
 	constval(const constval &) = default;
 	constval(constval &&) = default;
+
+	template<typename S>
+	constexpr bool operator==(const constval<S> &x) const {
+		if constexpr (haveeq_v<decltype(v),decltype(x.v)>) 
+			return v==x.v;
+		else return false;
+	}
+
 };
 
 template<typename> struct isconstvaltype : public std::false_type { };
@@ -55,6 +63,17 @@ struct var : public std::shared_ptr<varinfo<T>> {
 		std::shared_ptr<varinfo<T>>(std::make_shared<varinfo<T>>(vi)) {}
 	var(varinfo<T> &&vi) :
 		std::shared_ptr<varinfo<T>>(std::make_shared<varinfo<T>>(std::move(vi))) {}
+
+	template<typename S, 
+		std::enable_if_t<!std::is_same_v<T,S>,int> = 0>
+	bool operator==(const var<S> &v) const {
+		return false;
+	}
+
+	bool operator==(const var<T> &v) const {
+		return (std::shared_ptr<varinfo<T>>(v)) == 
+			(std::shared_ptr<varinfo<T>>(*this));
+	}
 };
 
 template<typename T>
@@ -73,6 +92,15 @@ struct exprleaf : public std::variant<noexprT, constval<Ts>..., var<Ts>...> {
 
 	base_t &asvariant() { return *this; }
 	const base_t &asvariant() const { return *this; }
+
+	template<typename ...Rs>
+	constexpr bool operator==(const exprleaf<Rs...> &x) const {
+		return std::visit([](const auto &v1, const auto &v2) {
+				if constexpr (haveeq_v<decltype(v1),decltype(v2)>) 
+					return v1==v2;
+				else return false;
+			},asvariant(),x.asvariant());
+	}
 };
 
 template<typename ...OPs>
@@ -83,6 +111,14 @@ struct exprnode : public std::variant<OPs...> {
 	using ops_t = std::variant<OPs...>; // OPs cannot be empty
 	base_t &asvariant() { return *this; }
 	const base_t &asvariant() const { return *this; }
+
+	template<typename ...OP2s>
+	constexpr bool operator==(const exprnode<OP2s...> &x) const {
+		return std::visit([](const auto &v1, const auto &v2) {
+				return std::is_same_v<decltype(v1),decltype(v2)>;
+				}, asvariant(),x.asvariant());
+	}
+				
 };
 
 // a type to record the type T without using a value
@@ -107,11 +143,6 @@ auto exprfold(const E &e, LF lf, NF nf) {
 					}
 				);
 }
-
-template<typename E>
-using exprmap = std::map<int,E>;
-template<typename E>
-using optexprmap = std::optional<exprmap<E>>;
 
 template<typename T>
 struct expraccess {
@@ -361,15 +392,22 @@ E newvar(const std::string &name) {
 	return E{var<T>{varinfo<T>(name)}};
 }
 
-
 template<typename T, typename E=expr1type_t<T>>
 E newvar() {
 	return E{var<T>{varinfo<T>()}};
 }
 
-template<typename T, typename E=expr1type_t<T>>
-E newconst(const T &v) {
-	return E{constval<T>{v}};
+template<typename E> // if v is not an expression consisting of a leaf
+		// of just a variable, the behavior is *undefined*
+E newvarsametype(const E &v) {
+	return std::visit([](auto &&v) {
+			return E{std::decay_t<decltype(v)>{}}; },
+			v.asleaf().asvariant());
+}
+
+template<typename T, typename E=expr1type_t<std::decay_t<T>>>
+E newconst(T &&v) {
+	return E{constval<std::decay_t<T>>{std::forward<T>(v)}};
 }
 
 template<typename TV, typename E=expr<TV,std::variant<std::monostate>>>
@@ -520,26 +558,10 @@ bool isnonconstexpr(const E &e,
 	return isnonconstexpr1(e,vars,ex);
 }
 
-template<typename T1, typename T2, typename=void>
-struct haseq : std::false_type {};
-template<typename T1, typename T2>
-struct haseq<T1,T2,
-	std::void_t<decltype((std::declval<T1>())==(std::declval<T2>()))>>
-		: std::true_type {};
 
 template<typename E1, typename E2>
 bool exprsame(const E1 &e1, const E2 &e2) {
-	return e1.sameas(e2,
-		[](const auto &l1, const auto &l2) {
-			return std::visit([](const auto &v1, const auto &v2) {
-					if constexpr (haseq<decltype(v1),decltype(v2)>::value) 
-						return v1==v2;
-					else return false;
-					},l1.asvariant(),l2.asvariant()); },
-		[](const auto &n1, const auto &n2) {
-			return std::visit([](const auto &v1, const auto &v2) {
-					return std::is_same_v<decltype(v1),decltype(v2)>;
-					},n1.asvariant(),n2.asvariant()); });
+	return e1.sameas(e2);
 }
 
 #endif

@@ -93,7 +93,8 @@ std::string write(const O &op,
 
 
 
-template<typename E>
+template<typename E,
+	std::enable_if_t<isexpr_v<E>,int> = 0>
 std::string to_string(const E &e) {
 	return exprfold(e,
 			[](const auto &l) {

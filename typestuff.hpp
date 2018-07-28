@@ -7,6 +7,17 @@
 #include <typeinfo>
 #include <typeindex>
 
+template<typename T1, typename T2, typename=void>
+struct haveeq : std::false_type {};
+template<typename T1, typename T2>
+struct haveeq<T1,T2,
+     std::void_t<decltype((std::declval<T1>())==(std::declval<T2>()))>>
+          : std::true_type {};
+
+template<typename T1, typename T2>
+inline constexpr bool haveeq_v = haveeq<T1,T2>::value;
+
+
 // would like to use
 /*
 template<typename...>

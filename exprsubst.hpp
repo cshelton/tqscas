@@ -2,111 +2,168 @@
 #define EXPRSUBST_HPP
 
 #include "exprbase.hpp"
-#include "exprmatch.hpp"
 #include <map>
 #include <iterator>
+#include <optional>
 
 // Assumes that the type of the expression remains unchanged
-template<typename E>
-E substitute(const E &e, const E &x, const E &v) {
-	return e.map([x,v](const E &ex) {
-			if (ex.sameas(x)) return std::optional<E>{v};
-			return std::optional<E>{};
-			});
+// replaces x in e with v
+template<typename E1, typename E2, typename E3>
+auto substitute(const E1 &e, const E2 &x, const E3 &v) {
+	if constexpr (std::is_same_v<E1,E3>)
+		return e.map([x,v](const E1 &ex) {
+				if (exprsame(ex,x)) return std::optional<E1>{v};
+					return std::optional<E1>{};
+				});
+	else {
+		using retT = exprunion_t<E1,E3>;
+		using ltype = exprleaf_t<retT>;
+		retT newv = upgradeexpr<retT>(v);
+		if constexpr (std::is_same_v<retT,E1>) 
+			return e.map([x,&newv](const E1 &ex) {
+				if (exprsame(ex,x)) return std::optional<retT>{newv};
+					return std::optional<retT>{};
+				});
+		else return e.fold([x,&newv](const auto &l) -> retT {
+				return (x.isleaf() && x.asleaf()==l)
+						? newv : 
+					     retT{upgradevariant<ltype>(l.asvariant())};
+				},
+				[x,&newv](const auto &n, auto &&ch) -> retT {
+					retT tempe{n,std::move(ch)};
+					return exprsame(tempe,x) ? newv : tempe;
+				});
+	}
+}
+template<typename E1, typename E2, typename T>
+auto substituteconst(const E1 &e, const E2 &x, T &&v) {
+	using retT = exprunion_t<E1,expr1type_t<T>>;
+	retT newv = newconst<T,retT>(std::forward<T>(v));
+	return substitute(e,x,newv);
 }
 
-// x -> v
-template<typename T, typename E>
-E substitute(const E &e, const E &x, const T &v) {
-	return substitute(e,x,newconst(v));
-}
-
-// x -> v
-template<typename E>
+// x <- v (x is replaced by v)
+template<typename X, typename V>
 struct subst {
-	subst(E xx, E vv) : x(std::move(xx)), v(std::move(vv)) {}
-	E x,v;
+	subst(X xx, V vv) : x(std::move(xx)), v(std::move(vv)) {}
+	X x;
+	V v;
 };
 
-template<typename E>
-E substitute(const E &e, const subst<E> &st) {
+template<typename E1, typename E2, typename E3>
+auto substitute(const E1 &e, const subst<E2,E3> &st) {
 	return substitute(e,st.x,st.v);
 }
 
-template<typename E>
-E substitute(const E &e, const std::vector<subst<E>> &st) {
-	return e.map([&st](const E &ex) {
-			for(auto &s : st)
-				if (ex.sameas(s.x)) return std::optional<E>{s.v};
-			return std::optional<E>{};
-			});
+// note that this does not try subsequent substitutions on the result
+// of the first... it applies them all "in parallel"
+template<typename E1, typename E2, typename E3>
+auto substitute(const E1 &e, const std::vector<subst<E2,E3>> &st) {
+	if constexpr (std::is_same_v<E1,E3>)
+		return e.map([&st](const E1 &ex) {
+				for(auto &s : st)
+					if (exprsame(ex,s.x)) return std::optional<E1>{s.v};
+				return std::optional<E1>{};
+				});
+	else {
+		using retT = exprunion_t<E1,E3>;
+		std::vector<subst<E2,retT>> newst;
+		for(auto &s : st)
+			newst.emplace_back(s.x,upgradeexpr<retT>(s.v));
+		if constexpr (std::is_same_v<retT,E1>) 
+			return e.map([&newst](const E1 &ex) {
+				for(auto &s : newst)
+					if (exprsame(ex,s.x)) return std::optional<E1>{s.v};
+				return std::optional<E1>{};
+				});
+		else return e.fold([&newst](const auto &l) -> retT {
+						for(auto &s : newst)
+							if (exprsame(l,s.x)) return s.v;
+						return upgradeexpr<retT>(l);
+					},
+					[&newst](const auto &n, auto &&ch) {
+						retT tempe{n,std::move(ch)};
+						for(auto &s : newst)
+							if (exprsame(tempe,s.x)) return s.v;
+						return tempe;
+					});
+	}
 };
-
-template<typename E>
-E operator|(E e, std::vector<subst<E>> st) {
-	return substitute(std::move(e),std::move(st));
-}
-
-template<typename E>
-std::vector<subst<E>> operator<<(E xx, E vv) {
-	return {1,subst{std::move(xx),std::move(vv)}};
-}
-
-template<typename E>
-std::vector<subst<E>> operator&(std::vector<subst<E>> v1,
-							std::vector<subst<E>> v2) {
-	std::vector<subst<E>> ret(std::move(v1));
-	ret.insert(ret.end(),std::make_move_iterator(v2.begin()),
-			std::make_move_iterator(v2.end()));
-	return ret;
-}
 
 //------------------
 
 struct placeholder {
 	int num;
+	bool operator==(const placeholder &p) const { return p.num==num; }
 };
 
-template<typename E>
-constexpr E P(int i) { return E{placeholder{i}}; }
-
-
-template<typename E>
-constexpr E P0_ = P<E>(0);
-template<typename E>
-constexpr E P1_ = P<E>(1);
-template<typename E>
-constexpr E P2_ = P<E>(2);
-template<typename E>
-constexpr E P3_ = P<E>(3);
-template<typename E>
-constexpr E P4_ = P<E>(4);
-template<typename E>
-constexpr E P5_ = P<E>(5);
-template<typename E>
-constexpr E P6_ = P<E>(6);
-template<typename E>
-constexpr E P7_ = P<E>(7);
-template<typename E>
-constexpr E P8_ = P<E>(8);
-template<typename E>
-constexpr E P9_ = P<E>(9);
-
-template<typename E>
-bool isplaceholder(const E &e) {
-	return (e.isleaf() && e.asleaf().type()==typeid(placeholder));
+std::string to_string(const placeholder &p) {
+	return std::string("P")+std::to_string(p.num);
 }
 
-template<typename E>
-E substitute(const E &e, const exprmap<E> st) {
-	return e.map([st](const E &ex) {
-			if (isplaceholder(ex)) {
-				int n = MYany_cast<placeholder>(ex.asleaf()).num;
-				auto l = st.find(n);
-				if (l!=st.end()) return std::optional<E>{l->second};
-			}
-			return std::optional<E>{};
-		});
+auto exprplaceholder(int i) { return newconst(placeholder{i}); }
+
+
+inline auto P0_ = exprplaceholder(0);
+inline auto P1_ = exprplaceholder(1);
+inline auto P2_ = exprplaceholder(2);
+inline auto P3_ = exprplaceholder(3);
+inline auto P4_ = exprplaceholder(4);
+inline auto P5_ = exprplaceholder(5);
+inline auto P6_ = exprplaceholder(6);
+inline auto P7_ = exprplaceholder(7);
+inline auto P8_ = exprplaceholder(8);
+inline auto P9_ = exprplaceholder(9);
+
+template<typename E> // map from placeholder to appropriate replacement expr
+using exprmap = std::map<int,E>;
+template<typename E> // a map as above, or nothing
+using optexprmap = std::optional<exprmap<E>>;
+
+template<typename E,
+	std::enable_if_t<isexpr_v<E>,int> = 0>
+bool isplaceholder(const E &e) {
+	return (isconst(e) && std::holds_alternative<constval<placeholder>>(e.asleaf()));
+}
+
+template<typename... Ts>
+bool isplaceholder(const exprleaf<Ts...> &l) {
+	return std::holds_alternative<constval<placeholder>>(l.asvariant());
+}
+
+
+template<typename E1, typename E2>
+auto substitute(const E1 &e, const exprmap<E2> &st) {
+	using retT = exprunion_t<E1,E2>;
+	if constexpr (std::is_same_v<E1,retT>)
+		return e.map([&st](const E1 &ex) {
+				if (isplaceholder(ex)) {
+					int n = std::get<constval<placeholder>>(ex.asleaf()).v.num;
+					auto l = st.find(n);
+					if (l!=st.end()) return std::optional<retT>
+								{upgradeexpr<retT>(l->second)};
+				}
+				return std::optional<retT>{};
+			});
+	else {
+		using ltype = exprleaf_t<retT>;
+		using ntype = exprnode_t<retT>;
+		return e.fold([&st](const auto &l) -> retT {
+					if (isplaceholder(l)) {
+						int n = std::get<constval<placeholder>>(l).v.num;
+						auto loc = st.find(n);
+						if (loc!=st.end())
+							return retT{upgradeexpr<retT>(loc->second)};
+					}
+					return retT{upgradevariant<ltype>(l.asvariant())};
+				},
+				[](auto &&n, auto &&ch) {
+					return retT{upgradevariant<ntype>
+                                   (std::forward<decltype(n)>(n).asvariant()),
+                              std::forward<decltype(ch)>(ch)};
+
+				});
+	}
 }
 
 //--------------------
@@ -114,11 +171,11 @@ E substitute(const E &e, const exprmap<E> st) {
 template<typename E>
 E replacelocal(const E &e) {
 	return e.map([](const E &ex) {
-			if (!isop<scopeinfo>(ex) ||
-			    isplaceholder(ex.children()[0]))
+			if (!isscope(ex) || isplaceholder(ex.children()[0]))
 				return std::optional<E>{};
-			return std::optional<E>{in_place,substitute(ex,ex.children()[0],
-					newvar(getvartype(ex.children()[0]));
+			else return std::optional<E>{substitute(ex,
+						ex.children()[0],
+						newvarsametype(ex.children()[0])
 					)};
 		});
 }

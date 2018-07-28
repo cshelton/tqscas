@@ -202,6 +202,17 @@ class gentree {
 		}
 
 		// belong here or need a different fold?
+		template<typename LT2, typename NT2>
+		bool sameas(const gentree<LT2,NT2> &t) const {
+			if (!(isleaf()==t.isleaf())) return false;
+			if (isleaf()) return asleaf()==t.asleaf();
+			if (!(asnode()==t.asnode())) return false;
+			auto ch = children(), tch = t.children();
+			if (ch.size() != tch.size()) return false;
+			for(int i=0;i<ch.size();i++)
+				if (!(ch[i].sameas(tch[i]))) return false;
+			return true;
+		}
 		template<typename LT2, typename NT2, typename Lcmp, typename Ncmp>
 		bool sameas(const gentree<LT2,NT2> &t,
 				Lcmp &&lcmp, Ncmp &&ncmp) const {
