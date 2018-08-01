@@ -17,6 +17,16 @@ struct haveeq<T1,T2,
 template<typename T1, typename T2>
 inline constexpr bool haveeq_v = haveeq<T1,T2>::value;
 
+template<typename... T1s, typename... T2s>
+bool varianteq(const std::variant<T1s...> &x, const std::variant<Ts2...> &y) {
+	return std::visit([](auto &&a, auto &&b) -> bool {
+			if constexpr
+				(haveeq<std::decay_t<decltype(a)>,std::decay_t<decltype(b)>)
+					return a==b;
+			else return false;
+			}, x, y);
+}
+
 
 // would like to use
 /*
@@ -88,7 +98,7 @@ constexpr bool sametypes(const V1 &v1, const V2 &v2) {
 // same as sametypes above, but
 //   let A1 be type stored in V1
 //   and A2 be type stored in V2
-// checks to see if A1==Tmpl<A2>
+// checks to see if Tmpl<A1>==A2
 template<template<typename> typename Tmpl, typename V1, typename V2>
 constexpr bool sametypeswrap(const V1 &v1, const V2 &v2) {
 	return std::visit([&v2](auto&&arg) {

@@ -5,6 +5,7 @@ SINGIMG = feddev27.simg
 #CC = singularity exec $(SINGIMG) gcc
 #LD = singularity exec $(SINGIMG) ld
 CXXFLAGS = -ggdb --std=c++2a
+#CXXFLAGS = -O3 --std=c++2a -march=native -mtune=native
 #CXXFLAGS = -O3 --std=c++2a
 LDFLAGS = 
 LDLIBS = # -Lmylib

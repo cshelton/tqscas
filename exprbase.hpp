@@ -95,12 +95,19 @@ struct exprleaf : public std::variant<noexprT, constval<Ts>..., var<Ts>...> {
 
 	template<typename ...Rs>
 	constexpr bool operator==(const exprleaf<Rs...> &x) const {
-		return std::visit([](const auto &v1, const auto &v2) {
-				if constexpr (haveeq_v<decltype(v1),decltype(v2)>) 
-					return v1==v2;
-				else return false;
-			},asvariant(),x.asvariant());
+		return varianteq(asvariant(),x.asvariant());
 	}
+
+	template<typename T,
+		std::enable_if_t<!istmpl_v<exprleaf,T>,int>=0>
+	constexpr bool operator==(const T &x) const {
+		return std::visit([&x](auto &&a) -> bool {
+				if constexpr (haveeq<std::decay_t<decltype(a)>,T>)
+					return a==x;
+				else return false;
+               }, asvariant());
+	}
+		
 };
 
 template<typename ...OPs>
@@ -114,9 +121,27 @@ struct exprnode : public std::variant<OPs...> {
 
 	template<typename ...OP2s>
 	constexpr bool operator==(const exprnode<OP2s...> &x) const {
-		return std::visit([](const auto &v1, const auto &v2) {
-				return std::is_same_v<decltype(v1),decltype(v2)>;
-				}, asvariant(),x.asvariant());
+		return std::visit([](auto &&a, auto &&b) -> bool {
+			if constexpr (!std::is_save_v<std::decay_t<decltype(a)>,
+							std::decay_t<decltype(b)>>)
+				return false;
+			else if constexpr
+                    (haveeq<std::decay_t<decltype(a)>,std::decay_t<decltype(b)>)
+                         return a==b;
+               else return true;
+               }, asvariant(), x.asvariant());
+	}
+
+	template<typename T,
+		std::enable_if_t<!istmpl_v<exprnode,T>,int>=0>
+	constexpr bool operator==(const T &x) const {
+		return std::visit([&x](auto &&a) -> bool {
+				if constexpr (!std::is_save_v<std::decay_t<decltype(a)>,T>)
+					return false;
+				if constexpr (haveeq<std::decay_t<decltype(a)>,T>)
+					return a==x;
+				else return true;
+               }, asvariant());
 	}
 				
 };
@@ -232,6 +257,18 @@ template<typename OP, typename... Es>
 auto buildexpr(const OP &node, Es &&...subexprs) {
 	using rett = exprunion_t<expr1op_t<OP>,std::decay_t<Es>...>;
 	return rett(node,upgradeexpr<rett>(subexprs)...);
+}
+
+template<typename OP, typename E>
+auto buildexprvec(const OP &node, const std::vector<E> &ch) {
+	using rett = exprunion_t<expr1op_t<OP>,E>;
+	if constexpr (std::is_same_v<rett,E>)
+		return rett(node,ch);
+	else {
+		std::vector<rett> rch;
+		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
+		return rett(node,rch);
+	}
 }
 
 // takes an op and the args (in raw type), returns the value of the op
@@ -462,19 +499,21 @@ bool isvar(const E &e) {
 		, e.asleaf().asvariant());
 }
 
+template<typename... VTs>
+using vset = std::unordered_set<std::variant<std::monostate,var<VTs>...>>;
 template<typename E>
 using vset_t = std::unordered_set<expranyvar_t<E>>;
-template<typename E>
-using vmap_t = std::unordered_map<expranyvar_t<E>,expranyvar_t<E>>;
+template<typename E1, typename E2=E1>
+using vmap_t = std::unordered_map<expranyvar_t<E1>,expranyvar_t<E2>>;
 //using vkmap = std::unordered_map<var,any>;
 
 struct scopeop {}; // base class for any operator who first
 			// argument is a local variable for the remainder
 
 // do not call!
-template<typename E>
+template<typename E, typename... VTs>
 bool isconstexpr1(const E &e,
-		const std::optional<vset_t<E>> &vars,
+		const std::optional<vset<VTs...>> &vars,
 		vset_t<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return true;
@@ -499,18 +538,18 @@ bool isconstexpr1(const E &e,
 	}
 }
 
-// vars == empty => "all vars"
-template<typename E>
-bool isconstexpr(const E &e, const std::optional<vset_t<E>> &vars = {}) {
+// vars == no value => "all vars" (different from an empty set)
+template<typename E, typename... VTs>
+bool isconstexpr(const E &e, const std::optional<vset<VTs...>> &vars = {}) {
 	vset_t<E> ex;
 	return isconstexpr1(e,vars,ex);
 }
 
-template<typename E>
-bool isconstexpr(const E &e, const expranyvar_t<E> &v) {
-    vset_t<E> ex;
-    std::optional<vset_t<E>> vars{std::in_place,{v}};
-    return isconstexpr1(e,vars,ex);
+template<typename E, typename T>
+bool isconstexpr(const E &e, const var<T> &v) {
+	vset_t<E> ex;
+	std::optional<vset<T>> vars{std::in_place,{v}};
+	return isconstexpr1(e,vars,ex);
 }
 
 template<typename E>
