@@ -50,16 +50,16 @@ std::string write(binarychainop<BASEOP,leftassoc>,
 	using vpsi = std::vector<std::pair<std::string,int>>;
 	if (subst.size()<=2) return write(BASEOP(),subst);
 	int myprec = precedence(BASEOP());
-	if (leftassoc) {
+	if constexpr (leftassoc) {
 		std::string ret = write(BASEOP(),vpsi{subst[0],subst[1]});
 		for(int i=2;i<subst.size();i++)
-			ret += write(BASEOP(),vpsi{make_pair(ret,myprec),subst[i]});
+			ret = write(BASEOP(),vpsi{make_pair(ret,myprec),subst[i]});
 		return ret;
 	} else {
 		int i=subst.size()-1;
 		std::string ret = write(BASEOP(),vpsi{subst[i-1],subst[i]});
 		for(i-=2;i>=0;i--)
-			ret += write(BASEOP(),vpsi{subst[i],make_pair(ret,myprec)});
+			ret = write(BASEOP(),vpsi{subst[i],make_pair(ret,myprec)});
 		return ret;
 	}
 }

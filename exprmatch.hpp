@@ -213,25 +213,30 @@ auto L(int n, const E &e) {
 template<typename OP, typename E, typename PE>
 optexprmap<E> matchwithrem(const OP &o, const std::vector<E> &ech,
 				const std::vector<PE> &pch) {
-	if (ech.size()<pch.size()) return {};
-	exprmap<E> retmap;
-	if (ech.size()==pch.size()) { // no "remainder" to be done, really
-		for(int i=0;i<pch.size();i++) {
-			auto r = match(ech[i],pch[i]);
+	// below line should not be executed, but to get this to compile,
+	// it is necessary
+	if constexpr (!varismem_v<OP,exprop_t<E>>) return {};
+	else {
+		if (ech.size()<pch.size()) return {};
+		exprmap<E> retmap;
+		if (ech.size()==pch.size()) { // no "remainder" to be done, really
+			for(int i=0;i<pch.size();i++) {
+				auto r = match(ech[i],pch[i]);
+				if (!r || !mergemap(retmap,*r)) return {};
+			}
+			return optexprmap<E>{std::in_place,retmap};
+		} else {
+			for(int i=0;i<pch.size()-1;i++) {
+				auto r = match(ech[i],pch[i]);
+				if (!r || !mergemap(retmap,*r)) return {};
+			}
+			std::vector<E> lastch;
+			for(int i=pch.size()-1;i<ech.size();i++)
+				lastch.emplace_back(ech[i]);
+			auto r = ::match(buildexprvec(o,lastch),pch.back());
 			if (!r || !mergemap(retmap,*r)) return {};
+			return optexprmap<E>{std::in_place,retmap};
 		}
-		return {std::in_place,retmap};
-	} else {
-		for(int i=0;i<pch.size()-1;i++) {
-			auto r = match(ech[i],pch[i]);
-			if (!r || !mergemap(retmap,*r)) return {};
-		}
-		std::vector<E> lastch;
-		for(int i=pch.size()-1;i<ech.size();i++)
-			lastch.emplace_back(ech[i]);
-		auto r = ::match(buildexprvec(o,lastch),pch.back());
-		if (!r || !mergemap(retmap,*r)) return {};
-		return optexprmap<E>{std::in_place,retmap};
 	}
 }
 
@@ -245,7 +250,7 @@ struct matchremainderop : public matcherbase {
 	template<typename E, typename PE>
 	optexprmap<E> match(const E &e, const std::vector<PE> &matchch) const {
 		if (e.isleaf() || !(op==e.asnode())) return {};
-		return matchcomm(op,e.children(),matchch);
+		return matchwithrem(op,e.children(),matchch);
 	}
 };
 template<typename OP>
@@ -259,7 +264,7 @@ std::string symbol(const matchremainderop<OP> &o) {
 template<typename OP>
 std::string write(const matchremainderop<OP> &o,
 			std::vector<std::pair<std::string,int>> subst) {
-	subst.emplace_back("rem",precedence(o.op));
+	subst.back().first += "...";
 	return write(o.op,std::move(subst));
 }
 
@@ -278,9 +283,8 @@ struct matchcommop : public matcherbase {
 		if (!withremainder && ech.size()!=matchch.size()) return {};
 		if (ech.size()<2) return matchwithrem(op,ech,matchch);
 		pickn<E> p(ech,matchch.size()-1);
-		auto mexpr = buildexprvec(op,matchch);
 		do {
-			auto ret = ::matchwithrem(buildexprvec(op,p.x),mexpr);
+			auto ret = ::matchwithrem(op,p.x,matchch);
 			if (ret) return ret;
 		} while(p.nextpick());
 		return {};
@@ -298,7 +302,7 @@ std::string symbol(const matchcommop<OP,WR> &o) {
 template<typename OP>
 std::string write(const matchcommop<OP,true> &o,
 			std::vector<std::pair<std::string,int>> subst) {
-	subst.emplace_back("rem",precedence(o.op));
+	subst.back().first += "...";
 	return std::string("{")+write(o.op,std::move(subst))+"}";
 }
 template<typename OP>

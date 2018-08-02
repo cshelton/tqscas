@@ -207,8 +207,17 @@ struct ismem<T,U,Ts...> {
 		ismem<T,Ts...>>::type::value;
 };
 
+template<typename T, typename V>
+struct varismem : std::false_type {};
+
+template<typename T, typename... Ts>
+struct varismem<T,std::variant<Ts...>> : ismem<T,Ts...> {};
+
 template<typename T, typename... Ts>
 inline constexpr bool ismem_v = ismem<T,Ts...>::value;
+
+template<typename T, typename V>
+inline constexpr bool varismem_v = varismem<T,V>::value;
 
 template<typename, typename...>
 struct variantunionhelp {};

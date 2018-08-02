@@ -36,4 +36,47 @@ int main(int argc, char **argv) {
 	checkit(e2,m3);
 	checkit(e3,m3);
 
+	cout << "-------" << endl;
+
+	auto m4 = buildexpr(matchcommop<addop>{},x,z);
+	auto m5 = L(11,buildexpr(matchcommop<addop>{},x,E4_));
+	checkit(e1,m4);
+	checkit(e2,m4);
+	checkit(e3,m4);
+	checkit(e1,m5);
+	checkit(e2,m5);
+	checkit(e3,m5);
+
+	auto e4 = buildexpr(binarychainop<addop>{},newconst(4),x,newconst(8),z*5);
+	auto e5 = buildexpr(binarychainop<addop>{},x,newconst(4),newconst(8));
+	auto e6 = buildexpr(binarychainop<addop>{},newconst(4),x);
+	auto m6 = buildexpr(matchcommop<binarychainop<addop>>{},x,newconst(4),newconst(8),z*5);
+	auto m7 = buildexpr(matchcommop<binarychainop<addop>>{},x,newconst(4));
+	auto m8 = buildexpr(matchremainderop<binarychainop<addop>>{},newconst(4),x);
+	auto m9 = buildexpr(matchremainderop<binarychainop<addop>>{},newconst(4),x,E3_);
+	auto m10 = buildexpr(matchcommop<binarychainop<addop>,true>{},x,newconst(4),E5_);
+
+	cout << "-------" << endl;
+
+	checkit(e1,m6);
+	checkit(e4,m6);
+	checkit(e5,m6);
+	checkit(e6,m6);
+	checkit(e1,m7);
+	checkit(e4,m7);
+	checkit(e5,m7);
+	checkit(e6,m7);
+	checkit(e1,m8);
+	checkit(e4,m8);
+	checkit(e5,m8);
+	checkit(e6,m8);
+	checkit(e1,m9);
+	checkit(e4,m9);
+	checkit(e5,m9);
+	checkit(e6,m9);
+	checkit(e1,m10);
+	checkit(e4,m10);
+	checkit(e5,m10);
+	checkit(e6,m10);
+
 }
