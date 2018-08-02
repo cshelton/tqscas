@@ -100,7 +100,7 @@ std::string to_string(const E &e) {
 			[](const auto &l) {
 				using L = std::decay_t<decltype(l)>;
 				if constexpr (isvartype_v<L>)
-					return std::make_pair(l->name,0);
+					return std::make_pair(l.name(),0);
 				else if constexpr (isconsttype_v<L>)
 					return std::make_pair(tostring(l.v),0);
 				else return std::make_pair(std::string(""),0);

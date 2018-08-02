@@ -18,10 +18,10 @@ template<typename T1, typename T2>
 inline constexpr bool haveeq_v = haveeq<T1,T2>::value;
 
 template<typename... T1s, typename... T2s>
-bool varianteq(const std::variant<T1s...> &x, const std::variant<Ts2...> &y) {
+bool varianteq(const std::variant<T1s...> &x, const std::variant<T2s...> &y) {
 	return std::visit([](auto &&a, auto &&b) -> bool {
-			if constexpr
-				(haveeq<std::decay_t<decltype(a)>,std::decay_t<decltype(b)>)
+			if constexpr (haveeq_v<std::decay_t<decltype(a)>,
+								std::decay_t<decltype(b)>>)
 					return a==b;
 			else return false;
 			}, x, y);

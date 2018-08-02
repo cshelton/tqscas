@@ -74,6 +74,16 @@ struct var : public std::shared_ptr<varinfo<T>> {
 		return (std::shared_ptr<varinfo<T>>(v)) == 
 			(std::shared_ptr<varinfo<T>>(*this));
 	}
+
+	std::string name() const { return this->get()->name; }
+};
+
+template<>
+struct var<noexprT> {
+	template<typename S>
+	bool operator==(const var<S> &v) const { return false; }
+
+	std::string name() const { return "N/A"; }
 };
 
 template<typename T>
@@ -92,23 +102,33 @@ struct exprleaf : public std::variant<noexprT, constval<Ts>..., var<Ts>...> {
 
 	base_t &asvariant() { return *this; }
 	const base_t &asvariant() const { return *this; }
-
-	template<typename ...Rs>
-	constexpr bool operator==(const exprleaf<Rs...> &x) const {
-		return varianteq(asvariant(),x.asvariant());
-	}
-
-	template<typename T,
-		std::enable_if_t<!istmpl_v<exprleaf,T>,int>=0>
-	constexpr bool operator==(const T &x) const {
-		return std::visit([&x](auto &&a) -> bool {
-				if constexpr (haveeq<std::decay_t<decltype(a)>,T>)
-					return a==x;
-				else return false;
-               }, asvariant());
-	}
 		
 };
+template<typename ...Ts, typename ...Rs>
+constexpr bool operator==(const exprleaf<Ts...> &x,
+					const exprleaf<Rs...> &y) {
+	return varianteq(x.asvariant(),y.asvariant());
+}
+
+template<typename T, typename ...Ts>
+constexpr std::enable_if_t<!istmpl_v<exprleaf,T>,bool>
+operator==(const exprleaf<Ts...> &x, const T &y) {
+	return std::visit([&y](auto &&a) -> bool {
+			if constexpr (haveeq_v<std::decay_t<decltype(a)>,T>)
+				return a==y;
+			else return false;
+		}, x.asvariant());
+}
+
+template<typename T, typename ...Ts>
+constexpr std::enable_if_t<!istmpl_v<exprleaf,T>,bool>
+operator==(const T &x, const exprleaf<Ts...> &y) {
+	return std::visit([&x](auto &&a) -> bool {
+			if constexpr (haveeq_v<std::decay_t<decltype(a)>,T>)
+				return x==a;
+			else return false;
+		}, y.asvariant());
+}
 
 template<typename ...OPs>
 struct exprnode : public std::variant<OPs...> {
@@ -118,33 +138,44 @@ struct exprnode : public std::variant<OPs...> {
 	using ops_t = std::variant<OPs...>; // OPs cannot be empty
 	base_t &asvariant() { return *this; }
 	const base_t &asvariant() const { return *this; }
-
-	template<typename ...OP2s>
-	constexpr bool operator==(const exprnode<OP2s...> &x) const {
-		return std::visit([](auto &&a, auto &&b) -> bool {
-			if constexpr (!std::is_save_v<std::decay_t<decltype(a)>,
-							std::decay_t<decltype(b)>>)
-				return false;
-			else if constexpr
-                    (haveeq<std::decay_t<decltype(a)>,std::decay_t<decltype(b)>)
-                         return a==b;
-               else return true;
-               }, asvariant(), x.asvariant());
-	}
-
-	template<typename T,
-		std::enable_if_t<!istmpl_v<exprnode,T>,int>=0>
-	constexpr bool operator==(const T &x) const {
-		return std::visit([&x](auto &&a) -> bool {
-				if constexpr (!std::is_save_v<std::decay_t<decltype(a)>,T>)
-					return false;
-				if constexpr (haveeq<std::decay_t<decltype(a)>,T>)
-					return a==x;
-				else return true;
-               }, asvariant());
-	}
-				
 };
+
+template<typename ... OPs, typename ...OP2s>
+constexpr bool operator==(const exprnode<OPs...> &x, const exprnode<OP2s...> &y) {
+	return std::visit([](auto &&a, auto &&b) -> bool {
+		if constexpr (!std::is_same_v<std::decay_t<decltype(a)>,
+						std::decay_t<decltype(b)>>)
+			return false;
+		else if constexpr
+			(haveeq_v<std::decay_t<decltype(a)>,std::decay_t<decltype(b)>>)
+				return a==b;
+		else return true;
+		}, x.asvariant(), y.asvariant());
+}
+
+template<typename T, typename ... OPs>
+constexpr std::enable_if_t<!istmpl_v<exprnode,T>,bool>
+operator==(const exprnode<OPs...> &x, const T &y) {
+	return std::visit([&y](auto &&a) -> bool {
+			if constexpr (!std::is_same_v<std::decay_t<decltype(a)>,T>)
+				return false;
+			if constexpr (haveeq_v<std::decay_t<decltype(a)>,T>)
+				return a==y;
+			else return true;
+		}, x.asvariant());
+}
+
+template<typename T, typename ... OPs>
+constexpr std::enable_if_t<!istmpl_v<exprnode,T>,bool>
+operator==(const T &x, const exprnode<OPs...> &y) {
+	return std::visit([&x](auto &&a) -> bool {
+			if constexpr (!std::is_same_v<std::decay_t<decltype(a)>,T>)
+				return false;
+			if constexpr (haveeq_v<std::decay_t<decltype(a)>,T>)
+				return x==a;
+			else return true;
+		}, y.asvariant());
+}
 
 // a type to record the type T without using a value
 // used so that variant<typetype<A>,typetype<B>,typetype<C>>
@@ -402,6 +433,14 @@ namespace std {
 		typedef std::size_t result_type;
 		result_type operator()(argument_type const &s) const {
 			return std::hash<std::shared_ptr<varinfo<T>>>{}(s);
+		}
+	};
+
+	template<> struct hash<var<noexprT>> {
+		typedef var<noexprT> argument_type;
+		typedef std::size_t result_type;
+		result_type operator()(argument_type const &s) const {
+			return 0;
 		}
 	};
 
