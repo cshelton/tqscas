@@ -259,7 +259,7 @@ constexpr int precedence(const matchremainderop<OP> &o) {
 }
 template<typename OP>
 std::string symbol(const matchremainderop<OP> &o) {
-	return symbol(o.op)+"(r)";
+	return symbol(o.op)+"...";
 }
 template<typename OP>
 std::string write(const matchremainderop<OP> &o,
@@ -296,8 +296,8 @@ constexpr int precedence(const matchcommop<OP,WR> &o) {
 }
 template<typename OP, bool WR>
 std::string symbol(const matchcommop<OP,WR> &o) {
-	if constexpr (WR) return symbol(o.op)+"(cr)";
-	else return symbol(o.op)+"(c)";
+	if constexpr (WR) return std::string("{") + symbol(o.op)+"}...";
+	else return std::string("{") + symbol(o.op)+"}";
 }
 template<typename OP>
 std::string write(const matchcommop<OP,true> &o,
