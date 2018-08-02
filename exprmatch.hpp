@@ -245,7 +245,7 @@ struct matchremainderop : public matcherbase {
 	template<typename E, typename PE>
 	optexprmap<E> match(const E &e, const std::vector<PE> &matchch) const {
 		if (e.isleaf() || !(op==e.asnode())) return {};
-		return matchassoc(op,e.children(),matchch);
+		return matchcomm(op,e.children(),matchch);
 	}
 };
 template<typename OP>
@@ -264,11 +264,11 @@ std::string write(const matchremainderop<OP> &o,
 }
 
 template<typename OP, bool withremainder=false>
-struct matchassocop : public matcherbase {
+struct matchcommop : public matcherbase {
 	OP op;
 
 	template<typename... Ts>
-	matchassocop(Ts &&...args) : op(std::forward<Ts>(args)...) {}
+	matchcommop(Ts &&...args) : op(std::forward<Ts>(args)...) {}
 
 	template<typename E, typename PE>
 	optexprmap<E> match(const E &e, const std::vector<PE> &matchch) const {
@@ -287,22 +287,22 @@ struct matchassocop : public matcherbase {
 	}
 };
 template<typename OP, bool WR>
-constexpr int precedence(const matchassocop<OP,WR> &o) {
+constexpr int precedence(const matchcommop<OP,WR> &o) {
 	return precedence(o.op);
 }
 template<typename OP, bool WR>
-std::string symbol(const matchassocop<OP,WR> &o) {
-	if constexpr (WR) return symbol(o.op)+"(ar)";
-	else return symbol(o.op)+"(a)";
+std::string symbol(const matchcommop<OP,WR> &o) {
+	if constexpr (WR) return symbol(o.op)+"(cr)";
+	else return symbol(o.op)+"(c)";
 }
 template<typename OP>
-std::string write(const matchassocop<OP,true> &o,
+std::string write(const matchcommop<OP,true> &o,
 			std::vector<std::pair<std::string,int>> subst) {
 	subst.emplace_back("rem",precedence(o.op));
 	return std::string("{")+write(o.op,std::move(subst))+"}";
 }
 template<typename OP>
-std::string write(const matchassocop<OP,false> &o,
+std::string write(const matchcommop<OP,false> &o,
 			const std::vector<std::pair<std::string,int>> &subst) {
 	return std::string("{")+write(o.op,std::move(subst))+"}";
 }
