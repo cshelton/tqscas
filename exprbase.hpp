@@ -381,7 +381,7 @@ RT evaloptypewrap(const OP &o, Args&&...args) {
 		else return
 			typetype<
 				decltype(evalop(o,
-						std::declval<std::decay_t<decltype(as)>>()...)
+						std::declval<typename std::decay_t<decltype(as)>::type>()...)
 					)>{};
 
 		}, std::forward<Args>(args)...);
@@ -395,18 +395,18 @@ RT evaloptypewrap(const OP &o, Args&&...args) {
 //    (below)]
 // otherwise, just overload evalop to supply an answer given fully
 // evaluated subtrees
-template<typename OP, typename E, typename EF>
-exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch, EF evalfn) {
+template<typename OP, typename E>
+exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch) {
 	using rett = exprvalue_t<E>;
 	switch(ch.size()) {
 		case 0: return evalopwrap<rett>(o);
-		case 1: return evalopwrap<rett>(o,evalfn(ch[0]));
-		case 2: return evalopwrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]));
-		case 3: return evalopwrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]));
-		case 4: return evalopwrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]),evalfn(ch[3]));
+		case 1: return evalopwrap<rett>(o,eval(ch[0]));
+		case 2: return evalopwrap<rett>(o,eval(ch[0]),eval(ch[1]));
+		case 3: return evalopwrap<rett>(o,eval(ch[0]),eval(ch[1]),eval(ch[2]));
+		case 4: return evalopwrap<rett>(o,eval(ch[0]),eval(ch[1]),eval(ch[2]),eval(ch[3]));
 		default: std::vector<rett> ceval;
 			    for(auto &&c : ch) {
-				    ceval.emplace_back(evalfn(c));
+				    ceval.emplace_back(eval(c));
 				    if (istype<noexprT>(ceval.back()))
 					    return noexprT{};
 			    }
@@ -414,20 +414,20 @@ exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch, EF evalfn) {
 	}
 }
 
-template<typename OP, typename E, typename EF>
-exprvaluetype_t<E> evaltypenode(const OP &o, const std::vector<E> &ch, EF evalfn) {
+template<typename OP, typename E>
+exprvaluetype_t<E> evaltypenode(const OP &o, const std::vector<E> &ch) {
 	using rett = exprvaluetype_t<E>;
 	switch(ch.size()) {
 		case 0: return evaloptypewrap<rett>(o);
-		case 1: return evaloptypewrap<rett>(o,evalfn(ch[0]));
-		case 2: return evaloptypewrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]));
-		case 3: return evaloptypewrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]));
-		case 4: return evaloptypewrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]),evalfn(ch[3]));
+		case 1: return evaloptypewrap<rett>(o,evaltype(ch[0]));
+		case 2: return evaloptypewrap<rett>(o,evaltype(ch[0]),evaltype(ch[1]));
+		case 3: return evaloptypewrap<rett>(o,evaltype(ch[0]),evaltype(ch[1]),evaltype(ch[2]));
+		case 4: return evaloptypewrap<rett>(o,evaltype(ch[0]),evaltype(ch[1]),evaltype(ch[2]),evaltype(ch[3]));
 		default: std::vector<rett> ceval;
 			    for(auto &&c : ch) {
-				    ceval.emplace_back(evalfn(c));
+				    ceval.emplace_back(evaltype(c));
 				    if (istype<typetype<noexprT>>(ceval.back()))
-					    return noexprT{};
+					    return typetype<noexprT>{};
 			    }
 			    return evaltypeopvec<rett>(o,ceval);
 	}
@@ -439,15 +439,17 @@ exprvaluetype_t<E> evaltypenode(const OP &o, const std::vector<E> &ch, EF evalfn
 template<typename E>
 exprvalue_t<E> eval(const E &e) {
 	using rett = exprvalue_t<E>;
-	return bubbleup<rett>(e,
-			[](auto &&a) -> rett {
-				if constexpr (isconstvaltype_v<std::decay_t<decltype(a)>>)
-					return a.v;
+	if (e.isleaf())
+		return std::visit([](auto &&l) -> rett {
+				using L = std::decay_t<decltype(l)>;
+				if constexpr (isconstvaltype_v<L>)
+					return l.v;
 				else return noexprT{};
-			},
-			[](auto &&op, auto &&ch, auto &&evalfn) -> rett {
-				return evalnode(op,ch,evalfn);
-			});
+			}, e.asleaf().asvariant());
+	else return std::visit([&e](auto &&n) -> rett {
+				return evalnode(std::forward<decltype(n)>(n),
+							e.children());
+			}, e.asnode().asvariant());
 }
 
 
@@ -457,16 +459,17 @@ exprvalue_t<E> eval(const E &e) {
 template<typename E>
 exprvaluetype_t<E> evaltype(const E &e) {
 	using rett = exprvaluetype_t<E>;
-	return bubbleup<rett>(e,
-			[](auto &&l) -> rett {
+	if (e.isleaf())
+		return std::visit([](auto &&l) -> rett {
 				using L = std::decay_t<decltype(l)>;
 				if constexpr (std::is_same_v<L,noexprT>)
 					return typetype<noexprT>{};
 				else return typetype<typename L::type>{};
-			},
-			[](auto &&op, auto &&ch, auto &&evalfn) -> rett {
-				return evaltypenode(op,ch,evalfn);
-			});
+			}, e.asleaf().asvariant());
+	else return std::visit([&e](auto &&n) -> rett {
+				return evaltypenode(std::forward<decltype(n)>(n),
+							e.children());
+			}, e.asnode().asvariant());
 }
 
 namespace std { 

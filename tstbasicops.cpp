@@ -1,5 +1,9 @@
-#include "exprsugar.hpp"
 #include <iostream>
+#include <string>
+
+std::string to_string(const std::string &s) { return std::string("\"")+s+"\""; }
+
+#include "exprsugar.hpp"
 #include "typetostr.hpp"
 
 using namespace std;
@@ -11,6 +15,13 @@ ostream &operator<<(ostream &os, const std::monostate &) {
 template<typename T, typename... Ts>
 ostream &operator<<(ostream &os, const variant<T, Ts...> &v) {
      return visit([&os](auto &&x) -> ostream & { return os << x; }, v);
+}
+
+template<typename T, typename... Ts>
+ostream &writetype(ostream &os, const variant<T, Ts...> &v) {
+	return visit([&os](auto &&x) -> ostream & {
+			return os << typetostr<std::decay_t<decltype(x)>>(); 
+		}, v);
 }
 
 
@@ -35,5 +46,22 @@ int main(int argc, char **argv) {
 	cout << typetostr<decltype(evalop(logop{},2.0))>() << endl;
 	cout << typetostr<decltype(evalop(logop{},std::string{}))>() << endl;
 	cout << eval(e7) << endl;
+	writetype(cout,evaltype(e7)) << endl;
+	writetype(cout,evaltype(e4)) << endl;
+
+	cout << "-----------" << endl;
+
+	auto s = newvar<string>("s");
+
+	auto ee1 = newconst(std::string("hello")) + std::string(" there");
+	auto ee2 = s+std::string(" there");
+	cout << draw(ee1) << endl;
+	cout << eval(ee1) << endl;
+	writetype(cout,evaltype(ee1)) << endl;
+	cout << draw(ee2) << endl;
+	cout << eval(ee2) << endl;
+	writetype(cout,evaltype(ee2)) << endl;
+
+
 	
 }
