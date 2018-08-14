@@ -87,9 +87,9 @@ template<typename VT, typename BASEOP>
 VT evalopvec(const binarychainop<BASEOP,true> &,
 			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
-	VT ans = evalopdispatchknownop<VT>(BASEOP{},vs[0],vs[1]);
+	VT ans = evalopwrap<VT>(BASEOP{},vs[0],vs[1]);
 	for(std::size_t i=2;i<vs.size();++i)
-			ans = evalopdispatchknownop<VT>(BASEOP{},ans,vs[i]);
+			ans = evalopwrap<VT>(BASEOP{},ans,vs[i]);
 	return ans;
 }
 
@@ -98,9 +98,30 @@ VT evalopvec(const binarychainop<BASEOP,false> &,
 			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
 	std::size_t i=vs.size();
-	VT ans = evalopdispatchknownop<VT>(BASEOP{},vs[i-2],vs[i-1]);
+	VT ans = evalopwrap<VT>(BASEOP{},vs[i-2],vs[i-1]);
 	for(i-=2;i>0;--i)
-		ans = evalopdispatchknownop<VT>(BASEOP{},vs[i-1],ans);
+		ans = evalopwrap<VT>(BASEOP{},vs[i-1],ans);
+	return ans;
+}
+
+template<typename VT, typename BASEOP>
+VT evaltypeopvec(const binarychainop<BASEOP,true> &,
+			const std::vector<VT> &vs) {
+	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
+	VT ans = evaloptypewrap<VT>(BASEOP{},vs[0],vs[1]);
+	for(std::size_t i=2;i<vs.size();++i)
+			ans = evaloptypewrap<VT>(BASEOP{},ans,vs[i]);
+	return ans;
+}
+
+template<typename VT, typename BASEOP>
+VT evaltypeopvec(const binarychainop<BASEOP,false> &,
+			const std::vector<VT> &vs) {
+	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
+	std::size_t i=vs.size();
+	VT ans = evaloptypewrap<VT>(BASEOP{},vs[i-2],vs[i-1]);
+	for(i-=2;i>0;--i)
+		ans = evaloptypewrap<VT>(BASEOP{},vs[i-1],ans);
 	return ans;
 }
 
@@ -135,18 +156,23 @@ std::string write(const evalatop &o,
 		+"|_{"+subst[0].first+"="+subst[2].first+"}";
 }
 
-constexpr bool pretraverseop(const evalatop &) { return true; }
-
-template<typename E>
-auto evaloppre(const evalatop &, const E &v, const E &expr, const E &val) {
-	auto valval = eval(val);
+template<typename E, typename EF>
+exprvalue_t<E> evalnode(const evalatop &, const std::vector<E> &ch,
+			EF evalfn) {
+	auto &v = ch[0];
+	auto valval = evalfn(ch[2]);
 	E newval = newconstfromeval<decltype(valval),E>(std::move(valval));
-	// could use substitute (from exprsubst.hpp), but that might
-	// create circular dependencies (???)
-	return eval(expr.map([v,newval](const E &ex) {
+	return evalfn(ch[1].map([v,newval](const E &ex) {
 				if (exprsame(ex,v)) return std::optional<E>{newval};
 				else return std::optional<E>{};
 			}));
 }
+
+template<typename E, typename EF>
+exprvalue_t<E> evaltypenode(const evalatop &, const std::vector<E> &ch,
+			EF evalfn) {
+	return evalfn(ch[1]);
+}
+
 
 #endif

@@ -135,7 +135,7 @@ std::string draw(const E &e) {
 			[](const auto &l) -> retT {
 				using L = std::decay_t<decltype(l)>;
 				if constexpr (isvartype_v<L>)
-					return l->name+"\n";
+					return l.name()+"\n";
 				else if constexpr (isconsttype_v<L>)
 					return tostring(l.v) +"\n";
 				else return std::string("\n");

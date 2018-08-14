@@ -95,7 +95,7 @@ inline constexpr bool isvartype_v = istmpl_v<var,T>;
 template<typename T>
 inline constexpr bool isconsttype_v = istmpl_v<constval,T>;
 template<typename T>
-inline constexpr bool isinvalid_v = std::is_same_v<T,std::monostate> || std::is_same_v<T,noexprT>;
+inline constexpr bool isinvalid_v = std::is_same_v<T,noexprT> || std::is_same_v<T,noexprT>;
 
 template<typename ...Ts>
 struct exprleaf : public std::variant<noexprT, constval<Ts>..., var<Ts>...> {
@@ -190,6 +190,9 @@ struct typetype {
 };
 
 // An expression!  TV is a variant type containing all of the possible
+//   types the expression (or subexpressions) could evaluate to
+//   OPV is a variant type containing all of the possible operators
+//   that could be used (internal nodes)
 template<typename TV, typename OPV>
 using expr = gentree<repack_t<exprleaf,TV>, repack_t<exprnode,OPV>>;
 
@@ -311,21 +314,7 @@ auto buildexprvec(const OP &node, const std::vector<E> &ch) {
 
 // takes an op and the args (in raw type), returns the value of the op
 // applied to the args (in raw type)
-std::monostate evalop(...) {
-	assert(false);
-}
-// takes an op and the subtree and evaluates it
-// (not performed unless pretraverseop(OP) is true, in which case
-//  evalop is not used, but this instead.  It is up to the OP to
-//  call eval on the subtrees as needed)
-// mainly, this is used for things like evalatop (which makes a 
-//  substitution) or sum (which iterates its subexpr with different
-//  values of a locally scoped variable)
-std::monostate evaloppre(...) {
-	assert(false);
-}
-
-typetype<std::monostate> evaltypeoppre(...) {
+noexprT evalop(...) {
 	assert(false);
 }
 
@@ -341,72 +330,16 @@ VTT evaltypeopvec(...) {
 	assert(false);
 }
 
-constexpr bool pretraverseop(...) { return false; }
-
-template<typename VT, typename OP, typename ...Args>
-auto evalopdispatchknownop(const OP &o, Args &&...args) {
-	return std::visit([&o](auto &&...as) -> VT {
-		if constexpr ((... || (std::is_same_v<std::monostate,
-							std::decay_t<decltype(as)>>)))
-			return std::monostate{};
-		else return evalop(std::forward<decltype(o)>(o),
-						std::forward<decltype(as)>(as)...);
-		}, std::forward<Args>(args)...);
-}
-
-template<typename VTT, typename OP, typename ...Args>
-auto evaltypeopdispatchknownop(const OP &o, Args &&...args) {
-	return std::visit([&o](auto &&...as) -> VTT {
-		if constexpr ((... || (std::is_same_v<std::monostate,
-					typename std::decay_t<decltype(as)>::type>)))
-			return typetype<std::monostate>{};
-		else return typetype<
-			decltype(evalop(std::forward<decltype(o)>(o),
-					std::declval<
-						typename std::decay_t<decltype(as)>::type>()...)
-				   )>{};
-		}, std::forward<Args>(args)...);
-}
-
-template<typename VT, typename OPV, typename ...Args>
-VT evalopdispatch(const OPV &ov, Args &&...args) {
-	return std::visit([](auto &&o, auto &&...as) -> VT {
-		if constexpr ((... || (std::is_same_v<std::monostate,
-							std::decay_t<decltype(as)>>)))
-			return std::monostate{};
-		else return evalop(std::forward<decltype(o)>(o),
-						std::forward<decltype(as)>(as)...);
-		}, ov, std::forward<Args>(args)...);
-}
-
-template<typename VTT, typename OPV, typename ...Args>
-VTT evaltypeopdispatch(const OPV &ov, Args &&...args) {
-	return std::visit([](auto &&o, auto &&...as) -> VTT {
-		if constexpr ((... || (std::is_same_v<std::monostate,
-						typename std::decay_t<decltype(as)>::type>)))
-			return typetype<std::monostate>{};
-		else return typetype<
-			decltype(evalop(std::forward<decltype(o)>(o),
-					std::declval<
-						typename std::decay_t<decltype(as)>::type>()...)
-				   )>{};
-		}, ov, std::forward<Args>(args)...);
-}
-
-template<typename VT, typename OPV, typename ...Args>
-VT evalopdispatchpre(const OPV &ov, Args &&...args) {
-	return std::visit([&args...](auto &&o) -> VT {
-		return evaloppre(std::forward<decltype(o)>(o),
-						std::forward<Args>(args)...);
-		}, ov);
-}
-
-template<typename VT, typename OPV, typename ...Args>
-VT evaltypeopdispatchpre(const OPV &ov, Args &&...args) {
-	return std::visit([&args...](auto &&o) -> VT {
-		return evaltypeoppre(std::forward<decltype(o)>(o),
-						std::forward<Args>(args)...);
-		}, ov);
+template<typename RT, typename E, typename LE, typename NE, typename EE>
+RT bubbleuphelp(const E &e, LE leaffn, NE nodefn, EE evalfn) {
+	if (e.isleaf())
+		return std::visit([&leaffn](auto &&l) -> RT {
+				return RT{leaffn(std::forward<decltype(l)>(l))};
+			}, e.asleaf().asvariant());
+	else return std::visit([&nodefn,&e,&evalfn](auto &&n) -> RT {
+				return RT{nodefn(std::forward<decltype(n)>(n),
+							e.children(),evalfn)}; },
+		   e.asnode().asvariant());
 }
 
 // LE and NE should be generic lambdas
@@ -416,64 +349,88 @@ VT evaltypeopdispatchpre(const OPV &ov, Args &&...args) {
 //   and a subexpr-eval-fn
 //   and returns something from which RT can be constructed
 // (subexpr-eval-fn should be passed single argument of type E
-//  -- it is the recursive call to bubbleup)
-template<typename RT, typename E, typename LE, typename NE, typename EE>
+//  -- it is the recursive call to bubbleup --
+//  it does the whole recursion on the subtree)
+template<typename RT, typename E, typename LE, typename NE>
 RT bubbleup(const E &e, LE leaffn, NE nodefn) {
 	auto evalfn = [&leaffn,&nodefn](const E &ee) -> RT {
 		auto evalfnimpl = [&leaffn,&nodefn](const E &ee,auto &me) -> RT {
 			return bubbleuphelp<RT>(ee,leaffn,nodefn,me);
 		};
-		return evalfnimpl(ee,leaffn,nodefn,evalfnimpl);
+		return evalfnimpl(ee,evalfnimpl);
 	};
 	return bubbleuphelp<RT>(e,leaffn,nodefn,evalfn);
 }
-template<typename RT, typename E, typename LE, typename NE, typename EE>
-RT bubbleuphelp(const E &e, LE leaffn, NE nodefn, EE evalfn) {
-	if (e.isleaf())
-		return std::visit([&leaffn,&evalfn](auto &&l) -> RT {
-				return RT{leaffn(std::forward<decltype(l)>(l))};
-			}, e.asleaf().asvariant());
-	else return std::visit([&nodefn,&e,&evalfn](auto &&n) -> RT {
-				return RT{nodefn(std::forward<decltype(n)>(n),
-							e.children(),evalfn)},
-		   e.asnode().asvariant());
+
+template<typename RT, typename OP, typename... Args>
+RT evalopwrap(const OP &o, Args&&...args) {
+	return std::visit([&o](auto &&...as) -> RT {
+		if constexpr ((... || (std::is_same_v<noexprT,
+							std::decay_t<decltype(as)>>)))
+			return noexprT{};
+		else return evalop(o,std::forward<decltype(as)>(as)...);
+		}, std::forward<Args>(args)...);
+}
+
+template<typename RT, typename OP, typename... Args>
+RT evaloptypewrap(const OP &o, Args&&...args) {
+	return std::visit([&o](auto &&...as) -> RT {
+		if constexpr ((... || (std::is_same_v<typetype<noexprT>,
+							std::decay_t<decltype(as)>>)))
+			return typetype<noexprT>{};
+		else return
+			typetype<
+				decltype(evalop(o,
+						std::declval<std::decay_t<decltype(as)>>()...)
+					)>{};
+
+		}, std::forward<Args>(args)...);
+}
+
+// for an operator, this (evalnode) should be overloaded if
+// the operator should *not* be evaulated by first evaluating the
+// subtrees, and then calling evalop on the result
+// (for instance for a "big-sum" operator)
+//   [if you do so for an operator, you also need to overload evaltypenode
+//    (below)]
+// otherwise, just overload evalop to supply an answer given fully
+// evaluated subtrees
+template<typename OP, typename E, typename EF>
+exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch, EF evalfn) {
+	using rett = exprvalue_t<E>;
+	switch(ch.size()) {
+		case 0: return evalopwrap<rett>(o);
+		case 1: return evalopwrap<rett>(o,evalfn(ch[0]));
+		case 2: return evalopwrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]));
+		case 3: return evalopwrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]));
+		case 4: return evalopwrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]),evalfn(ch[3]));
+		default: std::vector<rett> ceval;
+			    for(auto &&c : ch) {
+				    ceval.emplace_back(evalfn(c));
+				    if (istype<noexprT>(ceval.back()))
+					    return noexprT{};
+			    }
+			    return evalopvec<rett>(o,ceval);
+	}
 }
 
 template<typename OP, typename E, typename EF>
-auto 
-
-template<typename RT, typename OP, typename... Ts>
-RT evalnodereal(const OP &o, Ts&&...args) {
-	return std::visit([](auto &&o, auto &&...as) -> VT {
-		if constexpr ((... || (std::is_same_v<std::monostate,
-							std::decay_t<decltype(as)>>)))
-			return std::monostate{};
-		else return evalop(std::forward<decltype(o)>(o),
-						std::forward<decltype(as)>(as)...);
-		}, ov, std::forward<Args>(args)...);
-}
-
-template<typename OP, typename E>
-exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch) {
-	using rett = exprvalue_t<E>;
+exprvaluetype_t<E> evaltypenode(const OP &o, const std::vector<E> &ch, EF evalfn) {
+	using rett = exprvaluetype_t<E>;
 	switch(ch.size()) {
-		case 0: return evalnodereal<rett>(o);
-		case 1: return evalnodereal<rett>(o,eval(ch[0]);
-		case 2: return evalnodereal<rett>(o,eval(ch[0]),eval(ch[1]);
-		case 3: return evalnodereal<rett>(o,eval(ch[0]),eval(ch[1]),
-				   					eval(ch[2]));
-		case 4: return evalnodereal<rett>(o,eval(ch[0]),eval(ch[1]),
-				   					eval(ch[2]),eval(ch[3]));
+		case 0: return evaloptypewrap<rett>(o);
+		case 1: return evaloptypewrap<rett>(o,evalfn(ch[0]));
+		case 2: return evaloptypewrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]));
+		case 3: return evaloptypewrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]));
+		case 4: return evaloptypewrap<rett>(o,evalfn(ch[0]),evalfn(ch[1]),evalfn(ch[2]),evalfn(ch[3]));
 		default: std::vector<rett> ceval;
-			    // don't do this generally
-			    // to avoid memory alloc
-			    for(auto &&c : ch)
-				    ceval.emplace_back(eval(c));
-			    return std::visit([&ceval](auto &&op)->rett {
-					    return evalopvec<rett>(
-						    std::forward<decltype(op)>(op),
-						    ceval); },o);
-    }
+			    for(auto &&c : ch) {
+				    ceval.emplace_back(evalfn(c));
+				    if (istype<typetype<noexprT>>(ceval.back()))
+					    return noexprT{};
+			    }
+			    return evaltypeopvec<rett>(o,ceval);
+	}
 }
 
 
@@ -482,69 +439,17 @@ exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch) {
 template<typename E>
 exprvalue_t<E> eval(const E &e) {
 	using rett = exprvalue_t<E>;
-	if (e.isleaf()) {
-		return std::visit([](auto &&a) -> rett {
+	return bubbleup<rett>(e,
+			[](auto &&a) -> rett {
 				if constexpr (isconstvaltype_v<std::decay_t<decltype(a)>>)
 					return a.v;
 				else return noexprT{};
-			}
-			, e.asleaf().asvariant());
-	} else {
-		// support up to 4-arg hetrogeneous operators:
-		auto &opv = e.asnode().asvariant();
-		auto &ch = e.children();
-		if (std::visit([](auto &&op) { return pretraverseop(op); },opv)) {
-			switch(ch.size()) {
-				case 0: return evalopdispatchpre<rett>(opv);
-				case 1: return evalopdispatchpre<rett>(opv,ch[0]);
-				case 2: return evalopdispatchpre<rett>(opv,
-							   ch[0],
-							   ch[1]);
-				case 3: return evalopdispatchpre<rett>(opv,
-							   ch[0],
-							   ch[1],
-							   ch[2]);
-				case 4: return evalopdispatchpre<rett>(opv,
-							   ch[0],
-							   ch[1],
-							   ch[2],
-							   ch[3]);
-				default: return std::visit([&ch](auto &&op)->rett {
-							    return evalopvec<rett>(
-								    std::forward<decltype(op)>(op),
-								    ch); },opv);
-			}
-		} else {
-			switch(ch.size()) {
-				case 0: return evalopdispatch<rett>(opv);
-				case 1: return evalopdispatch<rett>(opv,eval(ch[0]));
-				case 2: return evalopdispatch<rett>(opv,
-							   eval(ch[0]),
-							   eval(ch[1]));
-				case 3: return evalopdispatch<rett>(opv,
-							   eval(ch[0]),
-							   eval(ch[1]),
-							   eval(ch[2]));
-				case 4: return evalopdispatch<rett>(opv,
-							   eval(ch[0]),
-							   eval(ch[1]),
-							   eval(ch[2]),
-							   eval(ch[3]));
-				default: {
-						    std::vector<rett> ceval;
-						    // don't do this generally
-						    // to avoid memory alloc
-						    for(auto &&c : ch)
-							    ceval.emplace_back(eval(c));
-						    return std::visit([&ceval](auto &&op)->rett {
-								    return evalopvec<rett>(
-									    std::forward<decltype(op)>(op),
-									    ceval); },opv);
-					    }
-			}
-		}
-	}
+			},
+			[](auto &&op, auto &&ch, auto &&evalfn) -> rett {
+				return evalnode(op,ch,evalfn);
+			});
 }
+
 
 // same as eval, but only calculates the type that would be returned
 // (wrapped in a variant of typetypes -- see above)
@@ -552,69 +457,16 @@ exprvalue_t<E> eval(const E &e) {
 template<typename E>
 exprvaluetype_t<E> evaltype(const E &e) {
 	using rett = exprvaluetype_t<E>;
-	if (e.isleaf())
-		return std::visit([](auto &&l) -> rett {
+	return bubbleup<rett>(e,
+			[](auto &&l) -> rett {
 				using L = std::decay_t<decltype(l)>;
-				if constexpr (is_same_v<L,noexprT>)
+				if constexpr (std::is_same_v<L,noexprT>)
 					return typetype<noexprT>{};
-				else return typename l::type{};
-			}, e.asleaf().asvariant());
-	else {
-		// support up to 4-arg hetrogeneous operators:
-		auto &opv = e.asnode().asvariant();
-		auto &ch = e.children();
-		if (std::visit([](auto &&op) { return pretraverseop(op); },opv)) {
-			switch(ch.size()) {
-				case 0: return evaltypeopdispatchpre<rett>(opv);
-				case 1: return evaltypeopdispatchpre<rett>(opv,ch[0]);
-				case 2: return evaltypeopdispatchpre<rett>(opv,
-							   ch[0],
-							   ch[1]);
-				case 3: return evaltypeopdispatchpre<rett>(opv,
-							   ch[0],
-							   ch[1],
-							   ch[2]);
-				case 4: return evaltypeopdispatchpre<rett>(opv,
-							   ch[0],
-							   ch[1],
-							   ch[2],
-							   ch[3]);
-				default: return std::visit([&ch](auto &&op)->rett {
-							    return evalopvec<rett>(
-								    std::forward<decltype(op)>(op),
-								    ch); },opv);
-			}
-		} else {
-			switch(ch.size()) {
-				case 0: return evaltypeopdispatch<rett>(opv);
-				case 1: return evaltypeopdispatch<rett>
-					   		(opv,evaltype(ch[0]));
-				case 2: return evaltypeopdispatch<rett>(opv,
-							   evaltype(ch[0]),
-							   evaltype(ch[1]));
-				case 3: return evaltypeopdispatch<rett>(opv,
-							   evaltype(ch[0]),
-							   evaltype(ch[1]),
-							   evaltype(ch[2]));
-				case 4: return evaltypeopdispatch<rett>(opv,
-							   evaltype(ch[0]),
-							   evaltype(ch[1]),
-							   evaltype(ch[2]),
-							   evaltype(ch[3]));
-				default: {
-						    std::vector<rett> ceval;
-						    // don't do this generally
-						    // to avoid memory alloc
-						    for(auto &&c : ch)
-							    ceval.emplace_back(evaltype(c));
-						    return std::visit([&ceval](auto &&op)->rett {
-								    return evaltypeopvec<rett>(
-									    std::forward<decltype(op)>(op),
-									    ceval); },opv);
-					    }
-			}
-		}
-	}
+				else return typetype<typename L::type>{};
+			},
+			[](auto &&op, auto &&ch, auto &&evalfn) -> rett {
+				return evaltypenode(op,ch,evalfn);
+			});
 }
 
 namespace std { 
