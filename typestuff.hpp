@@ -17,6 +17,8 @@ struct haveeq<T1,T2,
 template<typename T1, typename T2>
 inline constexpr bool haveeq_v = haveeq<T1,T2>::value;
 
+// this looks like it is the same as variant<...>::operator==
+// except that the two variants don't have to have the same set of types!
 template<typename... T1s, typename... T2s>
 bool varianteq(const std::variant<T1s...> &x, const std::variant<T2s...> &y) {
 	return std::visit([](auto &&a, auto &&b) -> bool {
@@ -26,7 +28,6 @@ bool varianteq(const std::variant<T1s...> &x, const std::variant<T2s...> &y) {
 			else return false;
 			}, x, y);
 }
-
 
 // would like to use
 /*
@@ -70,6 +71,13 @@ constexpr bool isderivtype(const std::variant<Ts...> &v) {
 			},v);
 }
 
+template<typename T, typename ...Ts>
+constexpr T convertto(const std::variant<Ts...> &v) {
+	return std::visit([](auto &&x) -> T {
+			return x; },v);
+}
+
+
 //----
 
 // checks if T == Tmpl<X> for some X
@@ -108,23 +116,6 @@ constexpr bool sametypeswrap(const V1 &v1, const V2 &v2) {
 }
 
 //----
-
-/* // TODO: remove completely
-// Does this exist in C++17 -- check
-
-template<typename>
-struct tmplparam{ };
-
-template<template<typename> typename T, typename TT>
-struct tmplparam<T<TT>> {
-	using type = TT;
-};
-
-template<typename T>
-using tmplparam_t = typename tmplparam<T>::type;
-*/
-
-//----
 // to change variant<A,B,C> into variant<T<A>,T<B>,T<C>>
 
 template<template<typename> typename T, typename V>
@@ -156,36 +147,6 @@ struct repack<T, std::variant<Args...>> {
 template<template<typename...> typename T, typename... Args>
 using repack_t = typename repack<T,Args...>::type;
 
-
-/* TODO: remove completely
-
-template<template<typename...> typename T, typename A, typename... Adds>
-struct repacknomonoadd;
-
-template<template<typename...> typename T, typename... Adds>
-struct repacknomonoadd<T, std::tuple<>, Adds...> {
-	using type = T<Adds...>;
-};
-
-template<template<typename...> typename T,
-			typename Arg1, typename... Args, typename... Adds>
-struct repacknomonoadd<T, std::tuple<Arg1,Args...>, Adds...> {
-	using type = typename std::conditional<
-		std::is_same<Arg1,std::monostate>::value,
-		typename repacknomonoadd<T,std::tuple<Args...>,Adds...>::type,
-		typename repacknomonoadd<T,std::tuple<Args...>,Arg1,Adds...>::type
-			>::type;
-};
-
-template<template<typename...> typename T,
-			typename... Args, typename... Adds>
-struct repacknomonoadd<T, std::variant<Args...>, Adds...> {
-	using type = typename repacknomonoadd<T,std::tuple<Args...>,Adds...>::type;
-};
-
-template<template<typename...> typename T, typename... Args>
-using repacknomonoadd_t = typename repacknomonoadd<T,Args...>::type;
-*/
 
 //-----
 

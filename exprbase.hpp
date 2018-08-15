@@ -183,10 +183,19 @@ operator==(const T &x, const exprnode<OPs...> &y) {
 
 // a type to record the type T without using a value
 // used so that variant<typetype<A>,typetype<B>,typetype<C>>
-// can, at run time, keep track of a type (one of A, B, or C) without a value
+// can, at run time, keep track of which type (one of A, B, or C)
+// without a value
 template<typename T>
 struct typetype {
 	using type=T;
+
+	template<typename S,
+		std::enable_if_t<!std::is_same_v<typetype<T>,S>,int> = 0>
+	bool operator==(const S &) const { return false; }
+	bool operator==(const typetype<T> &) const { return true; }
+
+	template<typename S>
+	bool operator!=(const S &s) const { return !(*this==s); }
 };
 
 // An expression!  TV is a variant type containing all of the possible
@@ -247,7 +256,7 @@ inline constexpr bool isexpr_v = expraccess<T>::isexpr;
 
 template<typename...>
 struct exprunion{
-	using type = expr<std::variant<std::monostate>,std::variant<std::monostate>>;
+	using type = expr<std::variant<noexprT>,std::variant<noexprT>>;
 };
 
 template<typename E>
@@ -270,9 +279,9 @@ template<typename E, typename... Es>
 using exprunion_t = typename exprunion<E,Es...>::type;
 
 template<typename T>
-using expr1type_t = expr<std::variant<T>,std::variant<std::monostate>>;
+using expr1type_t = expr<std::variant<noexprT,T>,std::variant<noexprT>>;
 template<typename OP>
-using expr1op_t = expr<std::variant<std::monostate>,std::variant<OP>>;
+using expr1op_t = expr<std::variant<noexprT>,std::variant<noexprT,OP>>;
 
 template<typename E, typename Eret>
 E upgradeexpr(const Eret &e) {
@@ -328,38 +337,6 @@ VT evalopvec(...) {
 template<typename VTT>
 VTT evaltypeopvec(...) {
 	assert(false);
-}
-
-template<typename RT, typename E, typename LE, typename NE, typename EE>
-RT bubbleuphelp(const E &e, LE leaffn, NE nodefn, EE evalfn) {
-	if (e.isleaf())
-		return std::visit([&leaffn](auto &&l) -> RT {
-				return RT{leaffn(std::forward<decltype(l)>(l))};
-			}, e.asleaf().asvariant());
-	else return std::visit([&nodefn,&e,&evalfn](auto &&n) -> RT {
-				return RT{nodefn(std::forward<decltype(n)>(n),
-							e.children(),evalfn)}; },
-		   e.asnode().asvariant());
-}
-
-// LE and NE should be generic lambdas
-// LE takes a leaf (variant removed) 
-//   and returns something from which RT can be constructed
-// NE takes a operator (variant removed), a vector of children (type E),
-//   and a subexpr-eval-fn
-//   and returns something from which RT can be constructed
-// (subexpr-eval-fn should be passed single argument of type E
-//  -- it is the recursive call to bubbleup --
-//  it does the whole recursion on the subtree)
-template<typename RT, typename E, typename LE, typename NE>
-RT bubbleup(const E &e, LE leaffn, NE nodefn) {
-	auto evalfn = [&leaffn,&nodefn](const E &ee) -> RT {
-		auto evalfnimpl = [&leaffn,&nodefn](const E &ee,auto &me) -> RT {
-			return bubbleuphelp<RT>(ee,leaffn,nodefn,me);
-		};
-		return evalfnimpl(ee,evalfnimpl);
-	};
-	return bubbleuphelp<RT>(e,leaffn,nodefn,evalfn);
 }
 
 template<typename RT, typename OP, typename... Args>
@@ -452,7 +429,41 @@ exprvalue_t<E> eval(const E &e) {
 			}, e.asnode().asvariant());
 }
 
+template<typename TV, typename E=expr<TV,std::variant<noexprT>>>
+E newconstfromeval(TV &&v);
+template<typename T, typename E=expr1type_t<std::decay_t<T>>>
+E newconst(T &&v);
 
+template<typename E, typename TV>
+E newconstfromeval2(TV &&v) { return newconstfromeval<TV,E>(std::forward<TV>(v));}
+template<typename E, typename T>
+E newconst2(T &&v) { return newconst<T,E>(std::forward<T>(v)); }
+
+// eval under the substitution that v1 becomes v2 (v1 needs to be
+// a leaf and v2 needs to be an exprvalue_t<E>)
+// currently done via rewrite, but probably could be more efficient
+// but then evalnode and the like would need to pass along the
+// extra parameters (like the map of substitutions as these accumulate)
+// TODO: make more efficient
+template<typename E>
+exprvalue_t<E> eval(const E &e, const E &v1, const exprvalue_t<E> &v2) {
+	return eval(e,v1,newconstfromeval2<E>(v2));
+}
+template<typename E, typename V2,
+	std::enable_if_t<!std::is_same_v<V2,E>
+				&& !std::is_same_v<V2,exprvalue_t<E>>,int> =0>
+exprvalue_t<E> eval(const E &e, const E &v1, const V2 &v2) {
+	return eval(e,v1,newconst2<E>(v2));
+}
+template<typename E>
+exprvalue_t<E> eval(const E &e, const E &v1, const E &v2) {
+	return eval(e.map([&v1,&v2](const E &ex) {
+				if (exprsame(ex,v1))
+					return std::optional<E>{v2};
+				else return std::optional<E>{};
+			}));
+}
+	
 // same as eval, but only calculates the type that would be returned
 // (wrapped in a variant of typetypes -- see above)
 // so that variables do not need to be instantiated
@@ -531,8 +542,8 @@ E newconst(T &&v) {
 	return E{constval<std::decay_t<T>>{std::forward<T>(v)}};
 }
 
-template<typename TV, typename E=expr<TV,std::variant<std::monostate>>>
-E newconstfromeval(TV v) {
+template<typename TV, typename E=expr<std::decay_t<TV>,std::variant<noexprT>>>
+E newconstfromeval(TV &&v) {
 	return std::visit([](auto &&v) { // decay below is bad if
 							// expression tree is to hold
 							// references or const, but that
@@ -540,7 +551,6 @@ E newconstfromeval(TV v) {
 			return E{constval<std::decay_t<decltype(v)>>
 						{std::forward<decltype(v)>(v)}}; },v);
 }
-
 
 template<typename E>
 expranyvar_t<E> getvar(const E &e) {
@@ -557,9 +567,12 @@ bool isop(const E &e) {
 	return !e.isleaf() && std::holds_alternative<OP>(e.asnode());
 }
 
-template<typename OP, typename E>
-bool isderivop(const E &e) {
-	return !e.isleaf() && isderivtype<OP>(e.asnode());
+struct scopeop {}; // base class for any operator who first
+			// argument is a local variable for the remainder
+
+template<typename E>
+bool isscopeop(const E &e) {
+	return !e.isleaf() && isderivtype<scopeop>(e.asnode());
 }
 
 template<typename E, typename OP>
@@ -584,15 +597,13 @@ bool isvar(const E &e) {
 }
 
 template<typename... VTs>
-using vset = std::unordered_set<std::variant<std::monostate,var<VTs>...>>;
+using vset = std::unordered_set<std::variant<noexprT,var<VTs>...>>;
 template<typename E>
 using vset_t = std::unordered_set<expranyvar_t<E>>;
 template<typename E1, typename E2=E1>
 using vmap_t = std::unordered_map<expranyvar_t<E1>,expranyvar_t<E2>>;
 //using vkmap = std::unordered_map<var,any>;
 
-struct scopeop {}; // base class for any operator who first
-			// argument is a local variable for the remainder
 
 // do not call!
 template<typename E, typename... VTs>
@@ -606,7 +617,7 @@ bool isconstexpr1(const E &e,
 		return (vars && vars->find(v)==vars->end())
 				|| exceptvars.find(v)!=exceptvars.end();
 	} else {
-		if (isderivop<scopeop>(e)) {
+		if (isscopeop(e)) {
 			auto v = getvar(e.children()[0]);
 			exceptvars.emplace(v);
 		}
@@ -614,7 +625,7 @@ bool isconstexpr1(const E &e,
 			// no need to undo changes to exceptvars, because 
 			// we will return false all the way back to the top
 			if (!isconstexpr1(c,vars,exceptvars)) return false;
-		if (isderivop<scopeop>(e)) {
+		if (isscopeop(e)) {
 			auto v = getvar(e.children()[0]);
 			exceptvars.erase(v);
 		}
@@ -657,7 +668,7 @@ bool isnonconstexpr1(const E &e,
 		return (!vars || vars->find(v)!=vars->end())
 				&& exceptvars.find(v)==exceptvars.end();
 	} else {
-		if (isderivop<scopeop>(e)) {
+		if (isscopeop(e)) {
 			auto v = getvar(e.children()[0]);
 			exceptvars.emplace(v);
 		}
@@ -665,7 +676,7 @@ bool isnonconstexpr1(const E &e,
 			// no need to undo changes to exceptvars, because 
 			// we will return true all the way back to the top
 			if (isnonconstexpr1(c,vars,exceptvars)) return true;
-		if (isderivop<scopeop>(e)) {
+		if (isscopeop(e)) {
 			auto v = getvar(e.children()[0]);
 			exceptvars.erase(v);
 		}

@@ -62,6 +62,22 @@ int main(int argc, char **argv) {
 	cout << eval(ee2) << endl;
 	writetype(cout,evaltype(ee2)) << endl;
 
+	cout << "-----------" << endl;
+
+	auto f1 = evalat(x,e4,newconst(2));
+	cout << draw(f1) << endl;
+	auto f2 = evalat(y,f1,newconst(7));
+	cout << draw(f2) << endl;
+	cout << eval(f2) << endl;
+
+	auto f3 = evalat(y,f1,newconst(7.0));
+		// should fail, because 7.0 is not an int!
+	cout << draw(f3) << endl;
+	cout << eval(f3) << endl;
+
+	auto f4 = buildexpr(evalatop{},y,f1,newconst(7.0)); // can force it!
+	cout << draw(f4) << endl;
+	cout << eval(f4) << endl; // should fail
 
 	
 }

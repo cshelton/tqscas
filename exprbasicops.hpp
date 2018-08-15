@@ -38,7 +38,7 @@ auto evalop(const subop &, T1 &&v1, T2 &&v2) {
 std::string symbol(const subop &) { return "-"; }
 int precedence(const subop &) { return 6; }
 
-// multiplcation:
+// multiplication:
 template<typename T1, typename T2,
 	int_t<decltype(std::declval<std::decay_t<T1>>() *
 			std::declval<std::decay_t<T2>>())> = 0>

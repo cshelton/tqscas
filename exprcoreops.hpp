@@ -133,15 +133,6 @@ struct evalatop : public scopeop {};
 	// 			is replaced by val (which can be a full expr)
 	// (v first b/c this is a "scopeop" and so it must be)
 
-template<typename E>
-bool isscope(const E &e) {
-	return !e.isleaf() &&
-		std::visit([](const auto &v) {
-				return std::is_base_of_v<scopeop,
-					std::decay_t<decltype(v)>>;
-					},e.asnode().asvariant());
-}
-
 constexpr int precedence(const evalatop &) {
 	return 3; // is this right?
 }
@@ -156,22 +147,21 @@ std::string write(const evalatop &o,
 		+"|_{"+subst[0].first+"="+subst[2].first+"}";
 }
 
-template<typename E, typename EF>
-exprvalue_t<E> evalnode(const evalatop &, const std::vector<E> &ch,
-			EF evalfn) {
+template<typename E>
+exprvalue_t<E> evalnode(const evalatop &, const std::vector<E> &ch) {
 	auto &v = ch[0];
-	auto valval = evalfn(ch[2]);
-	E newval = newconstfromeval<decltype(valval),E>(std::move(valval));
-	return evalfn(ch[1].map([v,newval](const E &ex) {
-				if (exprsame(ex,v)) return std::optional<E>{newval};
-				else return std::optional<E>{};
-			}));
+	auto valval = eval(ch[2]);
+	if (!std::visit([](auto &&a, auto &&b) {
+				using A = std::decay_t<decltype(a)>;
+				using B = std::decay_t<decltype(b)>;
+				return std::is_same_v<A,typetype<B>>; },evaltype(v),valval))
+		return noexprT{};
+	return eval(ch[1],v,valval);
 }
 
-template<typename E, typename EF>
-exprvalue_t<E> evaltypenode(const evalatop &, const std::vector<E> &ch,
-			EF evalfn) {
-	return evalfn(ch[1]);
+template<typename E>
+exprvaluetype_t<E> evaltypenode(const evalatop &, const std::vector<E> &ch) {
+	return evaltype(ch[1]);
 }
 
 
