@@ -12,6 +12,12 @@
 
 struct matcherbase { }; 
 
+template<typename E>
+bool ismatcher(const E &e) {
+	return (e.isleaf() && isderivtype<matcherbase>(e.asleaf()))
+		|| (e.isnode() && isderivtype<matcherbase>(e.asnode()));
+}
+
 struct matchany : public matcherbase {
 	template<typename E>
 	optexprmap<E> match(const E &e) const {

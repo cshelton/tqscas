@@ -214,5 +214,53 @@ Vsuper upgradevariant(Vsub &&v) {
 	return std::visit([](auto &&x) -> Vsuper { return x; },v);
 }
 
+//--------------
+
+template<typename... Ts>
+constexpr bool isidmem(const std::type_info &ti) {
+	return (... || (ti==typeid(Ts)));
+}
+
+//--------------
+
+template<typename...>
+struct typefoldimpl;
+
+template<>
+struct typefoldimpl<> {
+	template<typename S, typename F>
+	constexpr static auto exec(S &&s, F &&f) { return s; }
+};
+
+template<typename T, typename... Ts>
+struct typefoldimpl<T,Ts...> {
+	template<typename S, typename F>
+	constexpr static auto exec(S &&s, F &&f) {
+		return f.template operator()<T>(
+				typefoldimpl<Ts...>::exec(std::forward<S>(s),f)
+			);
+	}
+};
+
+template<typename>
+struct tuplefoldimpl;
+
+template<typename... Ts>
+struct tuplefoldimpl<std::tuple<Ts...>> {
+	template<typename S, typename F>
+	constexpr static auto exec(S &&s, F &&f) {
+		return typefoldimpl<Ts...>::exec(std::forward<S>(s),std::forward<F>(f));
+	}
+};
+
+template<typename S, typename F, typename... Ts>
+constexpr auto typefold(S &&s, F &&f) {
+	return typefoldimpl<Ts...>::exec(std::forward<S>(s), std::forward<F>(f));
+}
+
+template<typename Tup, typename S, typename F>
+constexpr auto tuplefold(S &&s, F &&f) {
+	return tuplefoldimpl<Tup>::exec(std::forward<S>(s), std::forward<F>(f));
+}
 
 #endif

@@ -32,7 +32,18 @@
  */
 
 template<typename BASEOP, bool leftassoc=true>
-struct binarychainop {};
+struct binarychainop {
+	using baseopT = BASEOP;
+	static constexpr bool lassoc = leftassoc;
+};
+
+template<typename E>
+bool ischainop(const E &e) {
+	return !e.isleaf() && std::visit([](auto &&o) {
+				using O = std::decay_t<decltype(o)>;
+				return istmpl_v<binarychainop,O>;
+			},e.asnode().asvariant());
+}
 
 template<typename BASEOP, bool leftassoc>
 constexpr int precedence(binarychainop<BASEOP,leftassoc>) {
@@ -64,64 +75,64 @@ std::string write(binarychainop<BASEOP,leftassoc>,
 	}
 }
 
-template<typename BASEOP, typename T, bool leftassoc>
+template<typename ETT, typename BASEOP, typename T, bool leftassoc>
 auto evalop(const binarychainop<BASEOP,leftassoc> &, T &&v) {
 	return v;
 }
 
-template<typename BASEOP, typename T1, typename T2, typename... Ts>
+template<typename ETT, typename BASEOP, typename T1, typename T2, typename... Ts>
 auto evalop(const binarychainop<BASEOP,true> &o, T1 &&v1, T2 &&v2, Ts &&...vs) {
-	return evalop(o,evalop(BASEOP(),std::forward<T1>(v1),
+	return evalop<ETT>(o,evalop<ETT>(BASEOP(),std::forward<T1>(v1),
 								std::forward<T2>(v2)),
 			std::forward<Ts>(vs)...);
 }
 
-template<typename BASEOP, typename T1, typename T2, typename... Ts>
+template<typename ETT, typename BASEOP, typename T1, typename T2, typename... Ts>
 auto evalop(const binarychainop<BASEOP,false> &o, T1 &&v1, T2 &&v2, Ts &&...vs) {
-	return evalop(BASEOP(),
+	return evalop<ETT>(BASEOP(),
 			std::forward<T1>(v1),
-			evalop(o,std::forward<T2>(v2),std::forward<Ts>(vs)...));
+			evalop<ETT>(o,std::forward<T2>(v2),std::forward<Ts>(vs)...));
 }
 
-template<typename VT, typename BASEOP>
+template<typename ETT, typename VT, typename BASEOP>
 VT evalopvec(const binarychainop<BASEOP,true> &,
 			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
-	VT ans = evalopwrap<VT>(BASEOP{},vs[0],vs[1]);
+	VT ans = evalopwrap<ETT,VT>(BASEOP{},vs[0],vs[1]);
 	for(std::size_t i=2;i<vs.size();++i)
-			ans = evalopwrap<VT>(BASEOP{},ans,vs[i]);
+			ans = evalopwrap<ETT,VT>(BASEOP{},ans,vs[i]);
 	return ans;
 }
 
-template<typename VT, typename BASEOP>
+template<typename ETT, typename VT, typename BASEOP>
 VT evalopvec(const binarychainop<BASEOP,false> &,
 			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
 	std::size_t i=vs.size();
-	VT ans = evalopwrap<VT>(BASEOP{},vs[i-2],vs[i-1]);
+	VT ans = evalopwrap<ETT,VT>(BASEOP{},vs[i-2],vs[i-1]);
 	for(i-=2;i>0;--i)
-		ans = evalopwrap<VT>(BASEOP{},vs[i-1],ans);
+		ans = evalopwrap<ETT,VT>(BASEOP{},vs[i-1],ans);
 	return ans;
 }
 
-template<typename VT, typename BASEOP>
+template<typename ETT, typename VT, typename BASEOP>
 VT evaltypeopvec(const binarychainop<BASEOP,true> &,
 			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
-	VT ans = evaloptypewrap<VT>(BASEOP{},vs[0],vs[1]);
+	VT ans = evaloptypewrap<ETT,VT>(BASEOP{},vs[0],vs[1]);
 	for(std::size_t i=2;i<vs.size();++i)
-			ans = evaloptypewrap<VT>(BASEOP{},ans,vs[i]);
+			ans = evaloptypewrap<ETT,VT>(BASEOP{},ans,vs[i]);
 	return ans;
 }
 
-template<typename VT, typename BASEOP>
+template<typename ETT,typename VT, typename BASEOP>
 VT evaltypeopvec(const binarychainop<BASEOP,false> &,
 			const std::vector<VT> &vs) {
 	if (vs.size()<=1) return vs[0]; // if size==0, trouble!
 	std::size_t i=vs.size();
-	VT ans = evaloptypewrap<VT>(BASEOP{},vs[i-2],vs[i-1]);
+	VT ans = evaloptypewrap<ETT,VT>(BASEOP{},vs[i-2],vs[i-1]);
 	for(i-=2;i>0;--i)
-		ans = evaloptypewrap<VT>(BASEOP{},vs[i-1],ans);
+		ans = evaloptypewrap<ETT,VT>(BASEOP{},vs[i-1],ans);
 	return ans;
 }
 

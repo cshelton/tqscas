@@ -135,6 +135,7 @@ bool isplaceholder(const exprleaf<Ts...> &l) {
 template<typename E1, typename E2>
 auto substitute(const E1 &e, const exprmap<E2> &st) {
 	using retT = exprunion_t<E1,E2>;
+	if (st.empty()) return upgradeexpr<retT>(e);
 	if constexpr (std::is_same_v<E1,retT>)
 		return e.map([&st](const E1 &ex) {
 				if (isplaceholder(ex)) {

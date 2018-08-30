@@ -8,8 +8,11 @@
 #include <iostream>
 #include <optional>
 
-template<typename LT, typename NT>
+template<typename LT, typename NT, typename TI=void>
 class gentree {
+	public:
+	using ExtraType=TI;
+
 	private:
 		typedef LT leafT;
 		struct nodeT;
@@ -202,8 +205,8 @@ class gentree {
 		}
 
 		// belong here or need a different fold?
-		template<typename LT2, typename NT2>
-		bool sameas(const gentree<LT2,NT2> &t) const {
+		template<typename LT2, typename NT2, typename TI2>
+		bool sameas(const gentree<LT2,NT2,TI2> &t) const {
 			if (!(isleaf()==t.isleaf())) return false;
 			if (isleaf()) return asleaf()==t.asleaf();
 			if (!(asnode()==t.asnode())) return false;
@@ -213,8 +216,8 @@ class gentree {
 				if (!(ch[i].sameas(tch[i]))) return false;
 			return true;
 		}
-		template<typename LT2, typename NT2, typename Lcmp, typename Ncmp>
-		bool sameas(const gentree<LT2,NT2> &t,
+		template<typename LT2, typename NT2, typename TI2, typename Lcmp, typename Ncmp>
+		bool sameas(const gentree<LT2,NT2,TI2> &t,
 				Lcmp &&lcmp, Ncmp &&ncmp) const {
 			if (!(isleaf()==t.isleaf())) return false;
 			if (isleaf()) return lcmp(asleaf(),t.asleaf());

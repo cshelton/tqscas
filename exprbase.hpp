@@ -3,6 +3,7 @@
 
 #include "gentree.hpp"
 #include "typestuff.hpp"
+#include "exprtypetraits.hpp"
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
@@ -202,8 +203,36 @@ struct typetype {
 //   types the expression (or subexpressions) could evaluate to
 //   OPV is a variant type containing all of the possible operators
 //   that could be used (internal nodes)
+/*
 template<typename TV, typename OPV>
 using expr = gentree<repack_t<exprleaf,TV>, repack_t<exprnode,OPV>>;
+*/
+
+template<typename TV, typename OPV, typename TT=defaulttraits>
+struct exprtraits {
+	using LT = repack_t<exprleaf,TV>;
+	using NT = repack_t<exprnode,OPV>;
+
+	using Traits = TT;
+
+	using values_t = typename LT::values_t;
+	using valuestype_t = innerwrap_t<typetype,values_t>;
+	using anyvar_t = innerwrap_t<var,values_t>;
+
+	using ops_t = typename NT::ops_t;
+
+	using leaftype = LT;
+	using nodetype = NT;
+};
+
+template<typename TV, typename OPV, typename TT=defaulttraits>
+using expr = gentree<repack_t<exprleaf,TV>, repack_t<exprnode,OPV>,
+	 	exprtraits<TV,OPV,TT>>;
+
+template<typename E>
+using exprinfo = typename E::ExtraType;
+template<typename E>
+using traits = typename exprinfo<E>::Traits;
 
 template<typename E, typename LF, typename NF>
 auto exprfold(const E &e, LF lf, NF nf) {
@@ -218,42 +247,27 @@ auto exprfold(const E &e, LF lf, NF nf) {
 				);
 }
 
+template<typename E>
+using exprvalue_t = typename exprinfo<E>::values_t;
+template<typename E>
+using exprvaluetype_t = typename exprinfo<E>::valuestype_t;
+template<typename E>
+using expranyvar_t = typename exprinfo<E>::anyvar_t;
+template<typename E>
+using exprleaf_t = typename exprinfo<E>::leaftype;
+template<typename E>
+using exprop_t = typename exprinfo<E>::ops_t;
+template<typename E>
+using exprnode_t = typename exprinfo<E>::nodetype;
+
 template<typename T>
-struct expraccess {
-	static constexpr bool isexpr = false;
-};
-
-template<typename LT, typename NT>
-struct expraccess<gentree<LT,NT>> {
-	using values_t = typename LT::values_t;
-	using valuestype_t = innerwrap_t<typetype,values_t>;
-	using anyvar_t = innerwrap_t<var,values_t>;
-
-	using ops_t = typename NT::ops_t;
-
-	using leaftype = LT;
-	using nodetype = NT;
-
-	static constexpr bool isexpr = istmpl_v<exprleaf,LT> && istmpl_v<exprnode,NT>;
-};
-
-
-template<typename E>
-using exprvalue_t = typename expraccess<E>::values_t;
-template<typename E>
-using exprvaluetype_t = typename expraccess<E>::valuestype_t;
-template<typename E>
-using expranyvar_t = typename expraccess<E>::anyvar_t;
-template<typename E>
-using exprleaf_t = typename expraccess<E>::leaftype;
-template<typename E>
-using exprop_t = typename expraccess<E>::ops_t;
-template<typename E>
-using exprnode_t = typename expraccess<E>::nodetype;
+struct isexpr : public std::false_type { };
+template<typename T1, typename T2, typename T3>
+struct isexpr<expr<T1,T2,T3>> : public std::true_type { };
 template<typename T>
-inline constexpr bool isexpr_v = expraccess<T>::isexpr;
+inline constexpr bool isexpr_v = isexpr<T>::value;
 
-
+// TODO: need to propagate exprtypetraits as well
 template<typename...>
 struct exprunion{
 	using type = expr<std::variant<noexprT>,std::variant<noexprT>>;
@@ -317,39 +331,53 @@ auto buildexprvec(const OP &node, const std::vector<E> &ch) {
 	else {
 		std::vector<rett> rch;
 		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
-		return rett(node,rch);
+		return rett(node,std::move(rch));
+	}
+}
+template<typename OP, typename E>
+auto buildexprvec(const OP &node, std::vector<E> &&ch) {
+	using rett = exprunion_t<expr1op_t<OP>,E>;
+	if constexpr (std::is_same_v<rett,E>)
+		return rett(node,std::move(ch));
+	else {
+		std::vector<rett> rch;
+		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
+		return rett(node,std::move(rch));
 	}
 }
 
 // takes an op and the args (in raw type), returns the value of the op
 // applied to the args (in raw type)
+// ETT is the type that describes the type traits for the C++ types 
+//   used (see exprtypetraits.hpp)
+template<typename ETT>
 noexprT evalop(...) {
 	assert(false);
 }
 
 // takes an op and a vector of variants, returns the value in the
-// variant type given as the first template argument
-template<typename VT>
+// variant type given as the second template argument
+template<typename ETT, typename VT>
 VT evalopvec(...) {
 	assert(false);
 }
 
-template<typename VTT>
+template<typename ETT, typename VTT>
 VTT evaltypeopvec(...) {
 	assert(false);
 }
 
-template<typename RT, typename OP, typename... Args>
+template<typename ETT, typename RT, typename OP, typename... Args>
 RT evalopwrap(const OP &o, Args&&...args) {
 	return std::visit([&o](auto &&...as) -> RT {
 		if constexpr ((... || (std::is_same_v<noexprT,
 							std::decay_t<decltype(as)>>)))
 			return noexprT{};
-		else return evalop(o,std::forward<decltype(as)>(as)...);
+		else return evalop<ETT>(o,std::forward<decltype(as)>(as)...);
 		}, std::forward<Args>(args)...);
 }
 
-template<typename RT, typename OP, typename... Args>
+template<typename ETT, typename RT, typename OP, typename... Args>
 RT evaloptypewrap(const OP &o, Args&&...args) {
 	return std::visit([&o](auto &&...as) -> RT {
 		if constexpr ((... || (std::is_same_v<typetype<noexprT>,
@@ -357,7 +385,7 @@ RT evaloptypewrap(const OP &o, Args&&...args) {
 			return typetype<noexprT>{};
 		else return
 			typetype<
-				decltype(evalop(o,
+				decltype(evalop<ETT>(o,
 						std::declval<typename std::decay_t<decltype(as)>::type>()...)
 					)>{};
 
@@ -376,18 +404,18 @@ template<typename OP, typename E>
 exprvalue_t<E> evalnode(const OP &o, const std::vector<E> &ch) {
 	using rett = exprvalue_t<E>;
 	switch(ch.size()) {
-		case 0: return evalopwrap<rett>(o);
-		case 1: return evalopwrap<rett>(o,eval(ch[0]));
-		case 2: return evalopwrap<rett>(o,eval(ch[0]),eval(ch[1]));
-		case 3: return evalopwrap<rett>(o,eval(ch[0]),eval(ch[1]),eval(ch[2]));
-		case 4: return evalopwrap<rett>(o,eval(ch[0]),eval(ch[1]),eval(ch[2]),eval(ch[3]));
+		case 0: return evalopwrap<traits<E>,rett>(o);
+		case 1: return evalopwrap<traits<E>,rett>(o,eval(ch[0]));
+		case 2: return evalopwrap<traits<E>,rett>(o,eval(ch[0]),eval(ch[1]));
+		case 3: return evalopwrap<traits<E>,rett>(o,eval(ch[0]),eval(ch[1]),eval(ch[2]));
+		case 4: return evalopwrap<traits<E>,rett>(o,eval(ch[0]),eval(ch[1]),eval(ch[2]),eval(ch[3]));
 		default: std::vector<rett> ceval;
 			    for(auto &&c : ch) {
 				    ceval.emplace_back(eval(c));
 				    if (istype<noexprT>(ceval.back()))
 					    return noexprT{};
 			    }
-			    return evalopvec<rett>(o,ceval);
+			    return evalopvec<traits<E>,rett>(o,ceval);
 	}
 }
 
@@ -395,18 +423,18 @@ template<typename OP, typename E>
 exprvaluetype_t<E> evaltypenode(const OP &o, const std::vector<E> &ch) {
 	using rett = exprvaluetype_t<E>;
 	switch(ch.size()) {
-		case 0: return evaloptypewrap<rett>(o);
-		case 1: return evaloptypewrap<rett>(o,evaltype(ch[0]));
-		case 2: return evaloptypewrap<rett>(o,evaltype(ch[0]),evaltype(ch[1]));
-		case 3: return evaloptypewrap<rett>(o,evaltype(ch[0]),evaltype(ch[1]),evaltype(ch[2]));
-		case 4: return evaloptypewrap<rett>(o,evaltype(ch[0]),evaltype(ch[1]),evaltype(ch[2]),evaltype(ch[3]));
+		case 0: return evaloptypewrap<traits<E>,rett>(o);
+		case 1: return evaloptypewrap<traits<E>,rett>(o,evaltype(ch[0]));
+		case 2: return evaloptypewrap<traits<E>,rett>(o,evaltype(ch[0]),evaltype(ch[1]));
+		case 3: return evaloptypewrap<traits<E>,rett>(o,evaltype(ch[0]),evaltype(ch[1]),evaltype(ch[2]));
+		case 4: return evaloptypewrap<traits<E>,rett>(o,evaltype(ch[0]),evaltype(ch[1]),evaltype(ch[2]),evaltype(ch[3]));
 		default: std::vector<rett> ceval;
 			    for(auto &&c : ch) {
 				    ceval.emplace_back(evaltype(c));
 				    if (istype<typetype<noexprT>>(ceval.back()))
 					    return typetype<noexprT>{};
 			    }
-			    return evaltypeopvec<rett>(o,ceval);
+			    return evaltypeopvec<traits<E>,rett>(o,ceval);
 	}
 }
 
@@ -508,12 +536,12 @@ namespace std {
 		}
 	};
 
-	template<typename Ts, typename OPs, typename Ts2, typename OPs2>
-	bool operator==(const expr<Ts,OPs> &e1, const expr<Ts2,OPs2> &e2) {
+	template<typename Ts, typename OPs, typename Trs, typename Ts2, typename OPs2, typename Trs2>
+	bool operator==(const gentree<Ts,OPs,Trs> &e1, const gentree<Ts2,OPs2,Trs2> &e2) {
 		return e1.sameptr(e2);
 	}
-	template<typename Ts, typename OPs, typename Ts2, typename OPs2>
-	bool operator!=(const expr<Ts,OPs> &e1, const expr<Ts2,OPs2> &e2) {
+	template<typename Ts, typename OPs, typename Trs, typename Ts2, typename OPs2, typename Trs2>
+	bool operator!=(const gentree<Ts,OPs,Trs> &e1, const gentree<Ts2,OPs2,Trs2> &e2) {
 		return !(e1==e2);
 	}
 }

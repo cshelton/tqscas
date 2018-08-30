@@ -5,8 +5,6 @@
 #include <cmath>
 #include <type_traits>
 
-#include <iostream> // TODO: delete
-
 // defines two operators, for scalars:
 // abs and deriv
 
@@ -18,12 +16,9 @@ struct absop {};
 struct derivop : scopeop {};
 
 
-// NOTE: this is *not* the same as std::is_scalar !!
-template<typename T>
-inline constexpr bool is_numeric_scalar_v = std::is_arithmetic_v<T>;
 
-template<typename T,
-				std::enable_if_t<std::is_integral_v<T>,int> =0>
+
+template<typename T, std::enable_if_t<std::is_integral_v<T>,int> =0>
 static constexpr T epscbrt() { return T{1}; }
 
 // Newton-Raphson to calculate (std::cbrt is not constexpr)
@@ -44,13 +39,15 @@ static constexpr T epscbrt() {
 	return cecbrt(std::numeric_limits<T>::epsilon());
 }
 
-template<typename T,
-	std::enable_if_t<is_numeric_scalar_v<T> && std::is_signed_v<T>,int> =0>
+template<typename ETT,typename T,
+	std::enable_if_t<hastrait<T,scalartrait,ETT>
+					&& !hastrait<T,unsignedtrait,ETT>,int> =0>
 auto evalop(const absop &, T &&x) {
 	return std::abs(std::forward<T>(x));
 }
-template<typename T,
-	std::enable_if_t<is_numeric_scalar_v<T> && std::is_unsigned_v<T>,int> =0>
+template<typename ETT,typename T,
+	std::enable_if_t<hastrait<T,scalartrait,ETT>
+					&& hastrait<T,unsignedtrait,ETT>,int> =0>
 auto evalop(const absop &, T &&x) {
 	return x;
 }
@@ -81,19 +78,18 @@ exprvalue_t<E> evalnode(const derivop &, const std::vector<E> &ch) {
 
 	return std::visit([&v,&e](auto &&x) -> exprvalue_t<E> {
 				using X = std::decay_t<decltype(x)>;
-				if constexpr (is_numeric_scalar_v<X>) {
+				if constexpr (hastrait<X,scalartrait,traits<E>>) {
 					constexpr auto eps = epscbrt<X>();
 					X h = eps*std::max(X{1},std::abs(x));
 					X xplus = x+h, xminus = x-h;
 					X xdiff = xplus-xminus; // might not be 2*h
-					//std::cout << std::endl;
-					//std::cout << h << ' ' << xplus << ' ' << xminus << ' ' << xdiff << std::endl;
 					return std::visit([&xdiff](auto &&fp, auto &&fm)
 									-> exprvalue_t<E> {
 							using FP = std::decay_t<decltype(fp)>;
 							using FM = std::decay_t<decltype(fm)>;
-							if constexpr (is_numeric_scalar_v<FP>
-									&& is_numeric_scalar_v<FM>)
+							if constexpr (
+						hastrait<FP,scalartrait,traits<E>>
+						&& hastrait<FM,scalartrait,traits<E>>)
 								return (fp-fm)/xdiff;
 							else return noexprT{};
 						}, eval(e,v,xplus),eval(e,v,xminus));

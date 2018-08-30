@@ -27,7 +27,7 @@ auto intconcat(T x, S y) {
 	return raise(x,ndigits(y))+y;
 }
 
-template<typename T, typename S,
+template<typename ET, typename T, typename S,
 	std::enable_if_t<std::is_integral_v<T> && std::is_integral_v<S>,int> =0>
 auto evalop(const myop &, T x, S y) {
 	return intconcat(intconcat(9,intconcat(x,y)),9);
@@ -43,7 +43,7 @@ int precedence(const myop &) {
 
 struct myop2 {};
 
-template<typename T, typename S,
+template<typename ET, typename T, typename S,
 	int_t<decltype(std::declval<T>()+std::declval<S>())> =0>
 auto evalop(const myop2 &, T x, S y) {
 	return x+y;

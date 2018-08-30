@@ -43,8 +43,8 @@ int main(int argc, char **argv) {
 
 	auto e7 = pow(newconst(3),newconst(2)) + log(newconst(4.3));
 	cout << draw(e7) << endl;
-	cout << typetostr<decltype(evalop(logop{},2.0))>() << endl;
-	cout << typetostr<decltype(evalop(logop{},std::string{}))>() << endl;
+	cout << typetostr<decltype(evalop<defaulttraits>(logop{},2.0))>() << endl;
+	cout << typetostr<decltype(evalop<defaulttraits>(logop{},std::string{}))>() << endl;
 	cout << eval(e7) << endl;
 	writetype(cout,evaltype(e7)) << endl;
 	writetype(cout,evaltype(e4)) << endl;

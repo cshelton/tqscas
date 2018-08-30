@@ -1,133 +1,44 @@
 #ifndef SCALARREWRITE_HPP
 #define SCALARREWRITE_HPP
 
-#include "scalarbase.hpp"
+#include "exprscalarops.hpp"
 #include "exprrewrite.hpp"
 #include "exprmatch.hpp"
 #include <algorithm>
 //#include <boost/logiclogic/tribool>
-#include "scalarrange.hpp"
+//#include "scalarrange.hpp"
 
-bool isgenexp(const expr &e) {
-	if (e.isleaf()) {
-		if (e.asleaf().type()==typeid(matchleaf)) {
-			matchleaf ml = MYany_cast<matchleaf>(e.asleaf());
-			if (std::dynamic_pointer_cast<matchany>(ml)
-			    || std::dynamic_pointer_cast<matchvar>(ml)
-			    || std::dynamic_pointer_cast<matchconstwrt>(ml)
-			    || std::dynamic_pointer_cast<matchnonconstwrt>(ml))
-				return true;
-		}
-		return false;
-	}
-	auto n = std::dynamic_pointer_cast<matchlabelop>(e.asnode());
-	if (!n) return false;
-	if (e.children().size()!=1) return false;
-	return isgenexp(e.children()[0]);
+template<typename E>
+bool ismatchexp(const E &e) {
+	if (e.isleaf()) return ismatcher(e);
+	else return ismatcher(e) && e.children().size()==1
+			&& ismatchexp(e.children()[0]);
 }
 
-
-expr chainpatternmod(const expr &ex) {
-	return ex.map([](const expr &e) {
-			if (e.isleaf()) return optional<expr>{};
-			auto n = e.asnode();
-			if (n==pluschain || n==multiplieschain) {
-				auto bop = std::dynamic_pointer_cast<opchain>(n)->baseop;
-				auto ch = e.children();
-				auto last = ch.back();
-				if (isgenexp(last))
-					return optional<expr>{in_place,std::make_shared<matchassocop>(std::make_shared<matchremainderop>(bop)),
-							ch};
-				else return optional<expr>{in_place,std::make_shared<matchassocop>(bop),
-							ch};
-			}
-			return optional<expr>{};
+template<typename E>
+E chainpatternmod(const E &ex) {
+	return ex.map([](const E &e) {
+			if (ischainop(e)) {
+				return std::visit([](auto &&o) {
+						using O = std::decay_t<decltype(o)>;
+						using BOP = typename O::baseopT;
+						auto ch = e.children();
+						return optional<E>
+						return std::optional<E>{std::in_place,
+							matchcommop<BOP,ismatcher(ch.back()),ch};
+					},e.asnode().asvariant());
+			} else return std::optional<E>{};
 		});
 }
 
-struct sortchildren : public rewriterule {
-	virtual ruleptr clone() const { return std::make_shared<sortchildren>(*this); }
-	optional<vset> vars;
-	std::vector<op> cops;
+struct matchscalarvar : public matcherbase {
+	template<typename E>
+	optexprmap<E> match(const E &e) const {
+		return isvar(e) && 
 
-	sortchildren(std::vector<op> comops)
-		: cops(comops), vars{} { }
-	sortchildren(std::vector<op> comops, vset v)
-		: cops(comops), vars(in_place,std::move(v)) {}
-
-	int typeorder(const expr &e) const {
-		// TODO: use map/unordered_map
-		if (isconst(e)) return 0;
-		int add = (isconstexpr(e,vars) ? 0 : 13);
-		if (e.isleaf()) return 1+add;
-		auto &op = e.asnode();
-		if (op==plusop || op==pluschain) return 2+add;
-		if (op==multipliesop || op==multiplieschain) return 3+add;
-		if (op==powerop) return 4+add;
-		if (op==logop) return 5+add;
-		//if (op==switchop) return 6+add;
-		if (op==condop) return 7+add;
-		if (op==condeqop) return 8+add;
-		if (op==absop) return 9+add;
-		if (op==derivop) return 10+add;
-		if (op==integrateop) return 11+add;
-		if (op==evalatop) return 12+add;
-		return 13+add;
-	}
-
-	virtual void setvars(const vset &v) {
-		vars = v;
-	}
-
-	int secondordering(const expr &e1, const expr &e2) const {
-		if (isconst(e1)) {
-			scalarreal v1 = getconst<scalarreal>(e1);
-			scalarreal v2 = getconst<scalarreal>(e2);
-			if (v1<v2) return -1;
-			if (v1>v2) return +1;
-			return 0;
-		}
-		if (isvar(e1))
-			return MYany_cast<var>(e1.asleaf())->name
-					.compare(MYany_cast<var>(e2.asleaf())->name);
-		if (e1.isleaf()) return 0;
-		auto &ch1 = e1.children();
-		auto &ch2 = e2.children();
-		for(int i=std::min(ch1.size(),ch2.size())-1;i>=0;i--) {
-			int res = exprcmp(ch1[i],ch2[i]);
-			if (res!=0) return res;
-		}
-		return ch1.size()-ch2.size();
-	}
-
-	int exprcmp(const expr &e1, const expr &e2) const {
-		int o1 = typeorder(e1), o2 = typeorder(e2);
-		if (o1!=o2) return o1-o2;
-		return secondordering(e1,e2);
-	}
-
-	virtual optional<expr> apply(const expr &e) const {
-		if (e.isleaf()) return {};
-		if (std::find(cops.begin(),cops.end(),e.asnode())==cops.end())
-			return {};
-		auto &ch = e.children();
-		if (ch.size()<2) return {};
-		for(int i=1;i<ch.size();i++) {
-			if (exprcmp(ch[i-1],ch[i])>0) {
-				std::vector<expr> che = ch;
-				std::sort(che.begin(),che.end(),
-						[this](const expr &e1, const expr &e2) {
-							return exprcmp(e1,e2)<0;
-						}
-				);
-				return optional<expr>{in_place,e.asnode(),che};
-			}
-		}
-		return {};
-	}
-};
-
-scalarset<scalarreal> rangeprop(const expr &e) {
+/*
+template<typename E>
+scalarset<scalarreal> rangeprop(const E &e) {
 	if (isconst(e)) {
 		return {getconst<scalarreal>(e)};
 	}
@@ -222,26 +133,8 @@ scalarset<scalarreal> rangeprop(const expr &e) {
 							ret.x.emplace(v1,v3);
 						}
 					}
-					/* not sure why this was the code... seems very wrong
-					 * p not even mentioned!
-					 */
-					/*
-					for(auto ip = b.first.closed
-								|| !b.first.pt.iseven() ?
-							ceil(b.first.pt/2)*2
-							: ceil(b.first.pt/2+1)*2;
-							ip<0 && b.second>ip;ip+=2) {
-						std::cout << "looking at " << tostring(b.first.pt) << ' ' << tostring(b.second.pt) << ' ' << tostring(ip) << std::endl;
-						ret.x.emplace(
-							b.first<=0 && b.second>=0 ?
-								scalarreal{0} : pow(
-									std::min(abs(b.first),
-										abs(b.second)),ip),
-							pow(std::max(abs(b.first),
-									abs(b.second)),ip));
-					}
-					*/
-
+					// not sure why this was the code... seems very wrong
+					// p not even mentioned!
 				});
 	}
 	if (isop(e,logop)) {
@@ -365,6 +258,7 @@ struct simpcond : public rewriterule {
 	}
 };
 
+*/
 
 /*
 struct normswitch : public rewriterule {
@@ -498,15 +392,17 @@ struct mergeswitch : public rewriterule {
 };
 */
 
-ruleptr SRR(const expr &s, const expr &p) {
+template<typename E>
+ruleptr SRR(const E &s, const E &p) {
 	return SR(chainpatternmod(s),p);
 }
 
-template<typename F>
-ruleptr SRR(const expr &s, const expr &p, F &&f) {
+template<typename E, typename F>
+ruleptr SRR(const E &s, const E &p, F &&f) {
 	return SR(chainpatternmod(s),p,std::forward<F>(f));
 }
 
+/*
 template<typename T>
 struct bigopexpand : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<bigopexpand>(*this); }
@@ -530,7 +426,9 @@ struct bigopexpand : public rewriterule {
 		return optional<expr>{in_place,chainop,terms};
 	}
 };
+*/
 
+/*
 expr x_ = newvar<scalarreal>("x_");
 expr notx_{makematchleaf<matchconstwrt>(vset{{getvar(x_)}})};
 expr k1_ = L(1,notx_);
@@ -542,7 +440,9 @@ expr k6_ = L(6,notx_);
 expr k7_ = L(7,notx_);
 expr k8_ = L(8,notx_);
 expr k9_ = L(9,notx_);
+*/
 
+/*
 struct tableintegrate : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<tableintegrate>(*this); }
 	std::vector<std::pair<expr,expr>> antiderivs;
@@ -566,7 +466,9 @@ struct tableintegrate : public rewriterule {
 		return {};
 	}
 };
+*/
 
+/*
 template<typename E1, typename E2>
 std::pair<expr,expr> ADR(E1 &&e, E2 &&ad) {
 	return std::make_pair(chainpatternmod(std::forward<E1>(e)),
@@ -603,7 +505,9 @@ std::vector<std::pair<expr,expr>> stdantiderivs
 					 pow(P1_,P2_*x_)/(P2_*log(P1_)))),
 
 	 }};
+	 */
 
+/*
 // all of the next few "helpers" should perhaps be moved elsewhere
 // they may also need to be made more efficient and perhaps given
 // their own algebraic symbols to be reasonable about directly
@@ -637,38 +541,18 @@ expr psum(const expr &p, const expr &n) {
 	expr k = newvar<scalarreal>();
 	return sum(nchoosek(p,k)*B0(p-k)*pow(-1,p-k)/(k+1)*pow(n,k+1),k,scalar(0),p);
 }
+*/
 
 // TODO:  will need to be separated out into general and specific to scalars
 //std::vector<ruleptr>
 
+template<typename E>
 ruleset basicscalarrules
-	{{toptr<trivialconsteval>(),
-	  toptr<scopeeval>(),
-	  toptr<sortchildren>(std::vector<op>{pluschain,multiplieschain}),
-
+	{{
   SRR(E1_ - E2_                          ,  P1_ + -1*P2_                   ),
   SRR(-E1_                               ,  -1*P1_                         ),
 
   SRR(E1_ / E2_                          ,  P1_ * pow(P2_,-1)              ),
-
-  /*
-  SRR(E1_ + (E2_ + E3_)                  ,  P1_ + P2_ + P3_                  ),
-  SRR( E1_ + (E2_ + E3_) + E4_           ,  P1_ + P2_ + P3_ + P4_            ),
-
-  SRR(E1_ * (E2_ * E3_)                  ,  P1_ * P2_ * P3_                  ),
-  SRR( E1_ * (E2_ * E3_) * E4_           ,  P1_ * P2_ * P3_ * P4_            ),
-  */
-  toptr<collapsechain>(pluschain,true),
-  toptr<collapsechain>(multiplieschain,true),
-  toptr<constchaineval>(pluschain),
-  toptr<constchaineval>(multiplieschain),
-  toptr<simpcond>(),
-  /*
-  toptr<normswitch>(),
-  toptr<mergeswitch>(),
-  toptr<squeezeswitch>(),
-  toptr<liftswitch>(),
-  */
 
   // some of these are only true "almost everywhere"
   // and might need to be removed for some applications
@@ -775,7 +659,7 @@ ruleset integralscalarrules {{
   SRR( integrate(E1_*E2_,E3_,E4_,E5_), integrate(P1_,P3_,P4_,P5_) * P2_ ,
   		[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); } ),
 
-  toptr<tableintegrate>(stdantiderivs),
+  std::make_shared<tableintegrate>(stdantiderivs),
 
   SRR( sum(E1_,V2_,E3_,E4_)               , scalar(0),
 		  [](const exprmap &m) { return isneg(E4_-E3_); } ),
@@ -793,8 +677,8 @@ ruleset integralscalarrules {{
 }};
 
 ruleset sumprodscalarrules {{
-  toptr<bigopexpand<scalarreal>>(3,sumop,pluschain,0),
-  toptr<bigopexpand<scalarreal>>(3,prodop,multiplieschain,1),
+  std::make_shared<bigopexpand<scalarreal>>(3,sumop,pluschain,0),
+  std::make_shared<bigopexpand<scalarreal>>(3,prodop,multiplieschain,1),
 
   SRR( sum(V2_,V2_,E3_,E4_)      , ifthenelse(P4_-P3_,scalar(0),(P4_+1-P3_)*(P4_+P3_)/2)                  ),
   SRR( sum((V2_+E1_),V2_,E3_,E4_) , ifthenelse(P4_-P3_,scalar(0),(P4_+1-P3_)*(P4_+P3_+2*P1_)/2)              ,
@@ -822,7 +706,7 @@ ruleset sumprodscalarrules {{
 }};
 
 ruleset numericevalrules {{
-		  toptr<consteval>(),
+		  std::make_shared<consteval>(),
 	 }};
 
 ruleset scalarruleset = basicscalarrules
