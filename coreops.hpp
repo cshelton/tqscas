@@ -1,7 +1,7 @@
-#ifndef EXPRBASEOPS_HPP
-#define EXPRBASEOPS_HPP
+#ifndef BASEOPS_HPP
+#define BASEOPS_HPP
 
-#include "exprbase.hpp"
+#include "base.hpp"
 #include "exprtostr.hpp"
 #include <iostream>
 

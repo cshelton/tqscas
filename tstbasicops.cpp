@@ -3,7 +3,7 @@
 
 std::string to_string(const std::string &s) { return std::string("\"")+s+"\""; }
 
-#include "exprsugar.hpp"
+#include "sugar.hpp"
 #include "typetostr.hpp"
 
 using namespace std;

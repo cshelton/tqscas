@@ -1,7 +1,7 @@
-#ifndef EXPRSCALAROPS_H
-#define EXPRSCALAROPS_H
+#ifndef SCALAROPS_H
+#define SCALAROPS_H
 
-#include "exprbasicops.hpp"
+#include "basicops.hpp"
 #include <cmath>
 #include <type_traits>
 

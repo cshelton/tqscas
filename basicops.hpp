@@ -1,9 +1,9 @@
-#ifndef EXPRBASICOPS_H
-#define EXPRBASICOPS_H
+#ifndef BASICOPS_H
+#define BASICOPS_H
 
-#include "exprbase.hpp"
+#include "base.hpp"
 #include "exprtostr.hpp"
-#include "exprcoreops.hpp"
+#include "coreops.hpp"
 
 // ops included (and "definitions" default to those in C++)
 // +, -, *, /, unary-, pow, log

@@ -1,13 +1,13 @@
-#ifndef EXPRMATCH_HPP
-#define EXPRMATCH_HPP
+#ifndef MATCH_HPP
+#define MATCH_HPP
 
-#include "exprbase.hpp"
-#include "exprcoreops.hpp"
+#include "base.hpp"
+#include "coreops.hpp"
 #include <numeric>
 #include <algorithm>
 #include <map>
 #include "util.hpp"
-#include "exprsubst.hpp"
+#include "subst.hpp"
 #include <string>
 
 struct matcherbase { }; 

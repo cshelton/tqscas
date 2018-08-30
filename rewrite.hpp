@@ -1,9 +1,9 @@
-#ifndef EXPRREWRITE_HPP
-#define EXPRREWRITE_HPP
+#ifndef REWRITE_HPP
+#define REWRITE_HPP
 
 //#include "exprtostr.hpp"
-#include "exprmatch.hpp"
-#include "exprsubst.hpp"
+#include "match.hpp"
+#include "subst.hpp"
 #include <iostream>
 #include <memory>
 

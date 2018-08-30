@@ -1,8 +1,8 @@
-#ifndef EXPRSUBSTSUGAR_H
-#define EXPRSUBSTSUGAR_H
+#ifndef SUBSTSUGAR_H
+#define SUBSTSUGAR_H
 
-#include "exprsubst.hpp"
-#include "exprsugarmacros.hpp"
+#include "subst.hpp"
+#include "sugarmacros.hpp"
 
 template<typename E1, typename E2, typename E3,
      std::enable_if_t<isexpr_v<E1>,int> = 0>

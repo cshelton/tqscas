@@ -1,5 +1,5 @@
-#ifndef EXPRBASE_HPP
-#define EXPRBASE_HPP
+#ifndef BASE_HPP
+#define BASE_HPP
 
 #include "gentree.hpp"
 #include "typestuff.hpp"
@@ -50,8 +50,7 @@ struct varinfo {
 	const std::string name;
 
 	varinfo(const std::string &n) : name(n) {}
-	varinfo() : name(std::string("__")+std::to_string(++globalvarnum__)+
-			typeid(T).name()) {}
+	varinfo() : name(std::string("__")+std::to_string(++globalvarnum__)+ typeid(T).name()) {}
 
 	private:
 	// TODO: perhaps replace with boost::uuid ??

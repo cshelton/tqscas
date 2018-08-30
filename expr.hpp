@@ -1,11 +1,11 @@
 #ifndef EXPR_H
 #define EXPR_H
 
-#include "exprbase.hpp"
-#include "exprcoreops.hpp"
+#include "base.hpp"
+#include "coreops.hpp"
 #include "exprtostr.hpp"
-#include "exprsubst.hpp"
-#include "exprmatch.hpp"
-#include "exprrewrite.hpp"
+#include "subst.hpp"
+#include "match.hpp"
+#include "rewrite.hpp"
 
 #endif

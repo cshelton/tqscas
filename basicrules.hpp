@@ -1,7 +1,7 @@
-#ifndef EXPRBASICRULES_HPP
-#define EXPRBASICRULES_HPP
+#ifndef BASICRULES_HPP
+#define BASICRULES_HPP
 
-#include "exprrewrite.hpp"
+#include "rewrite.hpp"
 
 template<typename E>
 ruleset baseruleset = {{

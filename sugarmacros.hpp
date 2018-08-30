@@ -1,5 +1,5 @@
-#ifndef EXPRSUGARMACROS_H
-#define EXPRSUGARMACROS_H
+#ifndef SUGARMACROS_H
+#define SUGARMACROS_H
 
 // boo.. hiss.. a macro! (or two)
 // These macros quickly register an overload for a function (or operator)

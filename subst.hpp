@@ -1,7 +1,7 @@
-#ifndef EXPRSUBST_HPP
-#define EXPRSUBST_HPP
+#ifndef SUBST_HPP
+#define SUBST_HPP
 
-#include "exprbase.hpp"
+#include "base.hpp"
 #include <map>
 #include <iterator>
 #include <optional>

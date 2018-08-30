@@ -8,8 +8,8 @@ std::string to_string(int x) {
 	return std::to_string(x); 
 }
 
-#include "exprsubst.hpp"
-#include "exprsugar.hpp"
+#include "subst.hpp"
+#include "sugar.hpp"
 #include "typetostr.hpp"
 #include "exprtostr.hpp"
 

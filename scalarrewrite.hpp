@@ -1,9 +1,9 @@
 #ifndef SCALARREWRITE_HPP
 #define SCALARREWRITE_HPP
 
-#include "exprscalarops.hpp"
-#include "exprrewrite.hpp"
-#include "exprmatch.hpp"
+#include "scalarops.hpp"
+#include "rewrite.hpp"
+#include "match.hpp"
 #include <algorithm>
 //#include <boost/logiclogic/tribool>
 //#include "scalarrange.hpp"
