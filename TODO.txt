@@ -5,7 +5,6 @@ Current (miopic) list:
 
 Longer / Maybe:
 	- fix conversion of constant to expr (??) -- how to have exprs of exprs then?
-	- Add ability of ops to pertain only to a particular type (for real)
 	- Add "domain" of exprs
 	- Add comparison operators (maybe redo switches in that case?)
 	- Add "min" and "max" to scalars (using switches)
@@ -22,3 +21,4 @@ Done:
 	- add abs as base function 
 	- convert "switch" to multiplication by step-indicator fn
 	- Use boost::rational<???> instead of double for scalars (convert double => rational?)
+	- Add ability of ops to pertain only to a particular type (for real)

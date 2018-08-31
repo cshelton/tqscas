@@ -6,6 +6,7 @@
 #include <tuple>
 #include <typeinfo>
 #include <typeindex>
+#include "typecmp.hpp"
 
 template<typename T1, typename T2, typename=void>
 struct haveeq : std::false_type {};
@@ -151,11 +152,7 @@ using repack_t = typename repack<T,Args...>::type;
 //-----
 
 // variant types as sets of types
-// TODO: might want to sort, but difficult (impossible) to find general
-//  ordering on types without registering types
-// see https://stackoverflow.com/questions/48723974/how-to-order-types-at-compile-time for clang and gcc specific method
-// (why sort?  So that variant<int,char> and variant<char,int> don't
-//  look different and cause conversions)
+// currently sorted, but ismem doesn't rely on this
 
 template<typename T, typename... Ts>
 struct ismem { static constexpr bool value = false; };
@@ -183,6 +180,81 @@ inline constexpr bool varismem_v = varismem<T,V>::value;
 template<typename, typename...>
 struct variantunionhelp {};
 
+
+template<typename T, typename V>
+struct tuplcons;
+
+template<typename T, typename... Ts>
+struct tuplcons<T,std::tuple<Ts...>> {
+	using type = std::tuple<T,Ts...>;
+};
+
+template<typename T>
+struct tuplcar;
+
+template<typename T, typename... Ts>
+struct tuplcar<std::tuple<T,Ts...>> {
+	using type = T;
+};
+
+template<typename T>
+struct tuplcdr;
+
+template<typename T, typename...Ts>
+struct tuplcdr<std::tuple<T,Ts...>> {
+	using type = std::tuple<Ts...>;
+};
+
+template<typename S, typename T>
+struct inserttuple;
+
+template<typename S>
+struct inserttuple<S,std::tuple<>> {
+	using type = std::tuple<S>;
+};
+
+template<typename S, typename T, typename... Ts>
+struct inserttuple<S,std::tuple<T,Ts...>> {
+	using type = typename std::conditional<
+		cmp<S,T>(),
+			std::tuple<S,T,Ts...>,
+		//else
+			typename tuplcons<T,typename inserttuple<
+								S,std::tuple<Ts...>>::type>::type
+		>::type;
+};
+
+template<typename V>
+struct sorttuple;
+
+template<typename T>
+struct sorttuple<std::tuple<T>> {
+	using type = std::tuple<T>;
+};
+
+template<typename T, typename S, typename... Ts>
+struct sorttuple<std::tuple<T,S,Ts...>> {
+	using postsort = typename sorttuple<std::tuple<S,Ts...>>::type;
+	using postcar = typename tuplcar<postsort>::type;
+	using postcdr = typename tuplcdr<postsort>::type;
+	using type = typename std::conditional<
+			cmp<T,postcar>(),
+				typename tuplcons<T,postsort>::type,
+			//else
+			// bubble sort:  replace sorttuple below with insert tuple
+			//  to make insertion sort
+				typename tuplcons<postcar,
+							typename inserttuple<T,postcdr>::type
+						>::type
+		>::type;
+};
+
+template<typename T>
+using sorttuple_t = typename sorttuple<T>::type;
+
+template<typename V>
+using sortvariant_t = repack_t<std::variant,sorttuple_t<repack_t<std::tuple,V>>>;
+
 template<typename... Ts>
 struct variantunionhelp<std::variant<Ts...>> {
 	using type = std::variant<Ts...>;
@@ -205,7 +277,8 @@ struct variantunion<V,std::variant<Us...>> {
 };
 
 template<typename V1, typename V2>
-using variantunion_t = typename variantunion<V1,V2>::type;
+using variantunion_t = sortvariant_t<typename variantunion<V1,V2>::type>;
+//using variantunion_t = typename variantunion<V1,V2>::type;
 
 // variant "upgrade" to superset
 

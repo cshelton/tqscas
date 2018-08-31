@@ -30,6 +30,7 @@ int main(int argc, char **argv) {
 
 	auto e1 = x+y;
 	cout << draw(e1) << endl;
+	cout << typetostr<decltype(e1)>() << endl;
 	auto e2 = e1+3;
 	cout << draw(e2) << endl;
 	auto e3 = -9+e2;
@@ -40,6 +41,7 @@ int main(int argc, char **argv) {
 	cout << draw(e5) << endl;
 	auto e6 = pow(3,2) + pow(x,log(y+3));
 	cout << draw(e6) << endl;
+	cout << typetostr<decltype(e6)>() << endl;
 
 	auto e7 = pow(newconst(3),newconst(2)) + log(newconst(4.3));
 	cout << draw(e7) << endl;

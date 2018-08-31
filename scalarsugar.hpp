@@ -7,6 +7,12 @@
 // add overloads to allow natural syntax for expr building:
 ALLOWEXPRFROM1(absop,abs)
 
+template<typename X, typename Y,
+	std::enable_if_t<isexpr_v<std::decay_t<X>>,int> = 0>
+auto deriv(const X &x, Y &&y) {
+	return deriv(x,std::forward<Y>(y),x);
+}
+
 // builds the expression (dy/dx)_{x=z}  (yes, the ordering is weird... maybe change?)
 // (taken directly from evalat, perhaps should be combined?)
 template<typename X, typename Y, typename Z,

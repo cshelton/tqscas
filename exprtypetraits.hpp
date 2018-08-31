@@ -15,6 +15,7 @@ struct scalartrait{};
 struct vectortrait{};
 struct inttrait{};
 struct realtrait{};
+struct complextrait{};
 struct matrixtrait{};
 struct unsignedtrait{};
 

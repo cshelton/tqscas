@@ -8,7 +8,6 @@
 #include <memory>
 
 //#define SHOWRULES
-//#define SHOWCHANGES
 
 template<typename E>
 struct rewriterule;
@@ -19,7 +18,8 @@ using ruleptr = std::shared_ptr<rewriterule<E>>;
 template<typename E>
 struct rewriterule {
 	virtual std::optional<E> apply(const E &e) const { return {}; }
-	virtual ruleptr clone() const { return std::make_shared<rewriterule<E>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<rewriterule<E>>(*this); }
+	virtual void setvars(const vset_t<E> &v) {}
 };
 
 template<typename E>
@@ -27,6 +27,7 @@ struct ruleset {
 
 	ruleset(std::initializer_list<ruleptr<E>> args) : rules(args) {}
 
+	/*
 	ruleset(ruleset &&rs) : rules(std::move(rs.rules)) {
 	}
 
@@ -43,12 +44,13 @@ struct ruleset {
 
 	template<typename... T>
 	ruleset(T &&...args) : rules(std::forward<T>(args)...) {}
+	*/
 
 	std::vector<ruleptr<E>> rules;
 
 	ruleset &operator+=(const ruleset<E> &rs) {
 		for(auto &r : rs.rules)
-			rules.emplace_back(r->clone());
+			rules.emplace_back(r);
 		return *this;
 	}
 
@@ -107,6 +109,32 @@ struct ruleset {
 		return ret;
 	}
 
+	template<typename... VTs >
+	void setvars(const vsetbase<VTs...> &e) {
+		if constexpr (std::is_same_v<expranyvar_t<E>,vsetbase<VTs...>>) {
+			for(auto &r : rules) 
+				r->setvars(e);
+		} else {
+			vset_t<E> ee;
+			for(auto &v : e)
+				ee.push_back(upgradevariant<expranyvar_t<E>>(v));
+			for(auto &r: rules)
+				r->setvars(ee);
+		}
+	}
+
+	template<typename V>
+	void setvar(const V &v) {
+		vset_t<E> ee;
+		std::visit([&ee](auto &&vv) {
+				using VV = std::decay_t<decltype(vv)>;
+				if constexpr (varismem_v<VV,expranyvar_t<E>>)
+					ee.emplace(vv);
+			},v);
+		for(auto &r : rules)
+			r->setvars(ee);
+	}
+
 	E rewrite(const E &e) const {
 	// TODO:  add cache removal (dead expr and old ones to keep memory low)
 	// (note that expr needs to be made into weak_ptr -- breaks
@@ -123,7 +151,7 @@ struct ruleset {
 // COP = chain op (type)
 template<typename E, typename COP>
 struct optochain : public rewriterule<E> {
-	virtual ruleptr clone() const {
+	virtual ruleptr<E> clone() const {
 		return std::make_shared<optochain<E,COP>>(*this);
 	}
 	virtual std::optional<E> apply(const E &e) const {
@@ -135,32 +163,36 @@ struct optochain : public rewriterule<E> {
 
 template<typename E, typename COP>
 struct collapsechain : public rewriterule<E> {
-	virtual ruleptr clone() const { return std::make_shared<collapsechain<E,COP>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<collapsechain<E,COP>>(*this); }
 
 	virtual std::optional<E> apply(const E &e) const {
-		if (!isop<COP>(e)) return {};
-		auto &ch = e.children();
-		if (ch.size()==1)
-			return std::optional<E>{std::in_place,ch[0]};
-		int nnewch = 0;
-		bool cont=false;
-		for(auto &c : ch) 
-			if (isop<COP>(c)) {
-				cont = true;
-				nnewch += c.children().size()-1;
+		if constexpr (!varismem_v<COP,exprop_t<E>>)
+			return {};
+		else {
+			if (!isop<COP>(e)) return {};
+			auto &ch = e.children();
+			if (ch.size()==1)
+				return std::optional<E>{std::in_place,ch[0]};
+			int nnewch = 0;
+			bool cont=false;
+			for(auto &c : ch) 
+				if (isop<COP>(c)) {
+					cont = true;
+					nnewch += c.children().size()-1;
+				}
+			if (!cont) return {};
+			std::vector<E> newch;
+			newch.reserve(ch.size()+nnewch);
+			for(auto &c : ch) {
+				if (!isop<COP>(c))
+					newch.emplace_back(c);
+				else {
+					for(auto &c2 : c.children())
+						newch.emplace_back(c2);
+				}
 			}
-		if (!cont) return {};
-		std::vector<E> newch;
-		newch.reserve(ch.size()+nnewch);
-		for(auto &c : ch) {
-			if (!isop<COP>(c))
-				newch.emplace_back(c);
-			else {
-				for(auto &c2 : c.children())
-					newch.emplace_back(c2);
-			}
+			return std::optional<E>{std::in_place,COP{},newch};
 		}
-		return std::optional<E>{std::in_place,COP{},newch};
 	}
 };
 
@@ -173,12 +205,30 @@ struct matchrewrite : public rewriterule<E> {
 			: search(upgradeexpr<E>(std::forward<E1>(pattern))),
 			  replace(upgradeexpr<E>(std::forward<E2>(newexp))) {}
 	
-	virtual ruleptr clone() const { return std::make_shared<matchrewrite<E>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<matchrewrite<E>>(*this); }
 
 	virtual std::optional<E> apply(const E &e) const {
 		auto m = match(e,search);
 		if (m) return substitute(replacelocal(replace),*m);
 		else return {};
+	}
+
+	virtual void setvars(const vset_t<E> &v) {
+		std::optional<E> nsearch = search.mapmaybe([&v](const E &e)
+			    		-> std::optional<E> {
+			if (!e.isleaf()) return std::optional<E>{};
+			else return std::visit([&v](auto &&n) {
+					using N = std::decay_t<decltype(n)>;
+					if constexpr (std::is_same_v<N,matchconstwrt>
+							|| std::is_same_v<N,matchnonconstwrt>) {
+						auto newn = n;
+						newn.setvars(v);
+						return std::optional<E>{std::in_place,newn};
+					}
+					return std::optional<E>{};
+				},e.asnode().asvariant());
+			});
+		if (nsearch) search = *nsearch;
 	}
 };
 
@@ -188,33 +238,33 @@ struct matchrewritecond : public matchrewrite<E> {
 
 	template<typename E1, typename E2>
 	matchrewritecond(E1 &&pattern, E2 &&newexp, F c)
-			: matchrewrite(std::forward<E1>(pattern),
+			: matchrewrite<E>(std::forward<E1>(pattern),
 					std::forward<E2>(newexp)),
 				  condition(std::move(c)) {}
 
-	virtual ruleptr clone() const { return std::make_shared<matchrewritecond<E,F>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<matchrewritecond<E,F>>(*this); }
 
 	virtual std::optional<E> apply(const E &e) const {
-		auto m = match(e,search);
-		if (m && condition(*m)) return substitute(replace,*m);
+		auto m = match(e,this->search);
+		if (m && condition(*m)) return substitute(this->replace,*m);
 		else return {};
 	}
 };
 
 template<typename E>
-ruleptr SR(const E &pattern, const E &newexp) {
+ruleptr<E> SR(const E &pattern, const E &newexp) {
 	return std::make_shared<matchrewrite<E>>(pattern,newexp);
 }
 
 template<typename E, typename F>
-ruleptr SR(const E &pattern, const E &newexp, F condition) {
+ruleptr<E> SR(const E &pattern, const E &newexp, F condition) {
 	return std::make_shared<matchrewritecond<E,F>>(pattern,newexp,
 			std::move(condition));
 }
 
 template<typename E>
 struct consteval : public rewriterule<E> {
-	virtual ruleptr clone() const { return std::make_shared<consteval<E>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<consteval<E>>(*this); }
 	virtual std::optional<E> apply(const E &e) const {
 		if (e.isleaf()) return {};
 		if (!e.asnode()->caneval()) return {};
@@ -227,7 +277,7 @@ struct consteval : public rewriterule<E> {
 
 template<typename E>
 struct trivialconsteval : public rewriterule<E> {
-	virtual ruleptr clone() const { return std::make_shared<trivialconsteval<E>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<trivialconsteval<E>>(*this); }
 	virtual std::optional<E> apply(const E &e) const {
 		if (e.isleaf()) return {};
 		auto &ch = e.children();
@@ -240,56 +290,75 @@ struct trivialconsteval : public rewriterule<E> {
 
 template<typename E,typename COP>
 struct constchaineval : public rewriterule<E> {
-	virtual ruleptr clone() const { return std::make_shared<constchaineval<E,COP>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<constchaineval<E,COP>>(*this); }
 
 	virtual std::optional<E> apply(const E &e) const {
-		if (!isop<COP>(e)) return {};
-		auto &ch = e.children();
-		int ai=-1,bi=-1;
-		for(int i=0;i<ch.size();i++)
-			if (isconst(ch[i])) {
-				if (ai>=0) {
-					bi=i;
-					break;
-				} else ai = i;
-			}
-		if (bi==-1) return {};
-		auto newch(ch);
-		newch[ai] = newconstfromeval2<E>
-				(evalnode((typename COP::baseopT){},ch[ai],ch[bi]));
-		newch.erase(newch.begin()+bi);
-		return std::optional<expr>{std::in_place,e.asnode(),newch};
+		if constexpr (!varismem_v<COP,exprop_t<E>>)
+			return {};
+		else {
+			if (!isop<COP>(e)) return {};
+			auto &ch = e.children();
+			int ai=-1,bi=-1;
+			for(int i=0;i<ch.size();i++)
+				if (isconst(ch[i])) {
+					if (ai>=0) {
+						bi=i;
+						break;
+					} else ai = i;
+				}
+			if (bi==-1) return {};
+			auto newch(ch);
+			newch[ai] = newconstfromeval2<E>
+					(evalnode((typename COP::baseopT){},
+							std::vector<E>{{ch[ai],ch[bi]}}));
+			newch.erase(newch.begin()+bi);
+			return std::optional<E>{std::in_place,e.asnode(),newch};
+		}
 	}
 };
 
 
 template<typename E>
 struct evalatrewrite : public rewriterule<E> {
-	virtual ruleptr clone() const { return std::make_shared<scopeeval<E>>(*this); }
-	virtual std::optional<expr> apply(const expr &e) const {
-		if (!isscopeop(e)) return {};
-		auto se = std::dynamic_pointer_cast<scopeinfo>(e.asnode());
-		auto &ch = e.children();
-		if (isop<evalatop>(e))
-			return substitute(ch[1],ch[0],ch[2]);
-		else return {};
+	virtual ruleptr<E> clone() const { return std::make_shared<evalatrewrite<E>>(*this); }
+	virtual std::optional<E> apply(const E &e) const {
+		if constexpr (!varismem_v<evalatop,exprop_t<E>>)
+			return {};
+		else {
+			if (isop<evalatop>(e)) {
+				auto &ch = e.children();
+				return substitute(ch[1],ch[0],ch[2]);
+			} else return {};
+		}
 	}
 };
 
 template<typename E>
 struct sortchildren : public rewriterule<E> {
-	virtual ruleptr clone() const { return std::make_shared<sortchildren<E>>(*this); }
-	optional<vset_t<E>> vars;
+	std::optional<vset_t<E>> vars;
+
+	virtual ruleptr<E> clone() const { return std::make_shared<sortchildren<E>>(*this); }
 	// maps type to ordering (lower goes first) and whether the
 	// children can be reordered
-	using typemap = std::unordered_map<std::type_info,std::pair<int,bool>>;
+	using tiref = std::reference_wrapper<const std::type_info>;
+	struct tirefhash {
+		std::size_t operator()(tiref ti) const {
+			return ti.get().hash_code();
+		}
+	};
+	struct tirefeq {
+		bool operator()(tiref x, tiref y) const {
+			return x.get()==y.get();
+		}
+	};
+	using typemap = std::unordered_map<tiref,std::pair<int,bool>,tirefhash,tirefeq>;
 	typemap ord;
 	int maxord;
 
 	sortchildren(typemap ordering)
 		: ord(std::move(ordering)), vars{} { calcmaxord(); }
 	sortchildren(typemap ordering, vset_t<E> v)
-		: cops(std::move(ordering)), vars(in_place,std::move(v))
+		: ord(std::move(ordering)), vars(std::in_place,std::move(v))
 		{ calcmaxord(); }
 
 	private:
@@ -312,17 +381,16 @@ struct sortchildren : public rewriterule<E> {
 	int typeorder(const E &e) const {
 		if (isconst(e)) return 0;
 		int add = (isconstexpr(e,vars) ? 2 : 4+maxord);
-		if (e.isleaf()) return 1+add;
-		return std::visit([&ord,add](auto &&o) {
+		if (e.isleaf()) return add-1;
+		return std::visit([this,add](auto &&o) {
 				using O = std::decay_t<decltype(o)>;
-				auto tid = typeid(O);
-				auto p = ord.find(tid);
+				auto p = ord.find(typeid(O));
 				if (p==ord.end()) return maxord+1+add;
 				else return p->second.first+add;
 			}, e.asnode().asvariant());
 	}
 
-	void setvars(const vset &v) {
+	void setvars(const vset_t<E> &v) {
 		vars = v;
 	}
 
@@ -350,7 +418,7 @@ struct sortchildren : public rewriterule<E> {
 					if constexpr (istmpl_v<var,V1> && istmpl_v<var,V2>)
 						return v1.name().compare(v2.name());
 					else return 0; // should never get here
-				}, e1.asnode().asvariant(), e2.asnode().asvariant());
+				}, e1.asleaf().asvariant(), e2.asleaf().asvariant());
 		if (e1.isleaf()) return 0;
 		auto &ch1 = e1.children();
 		auto &ch2 = e2.children();
@@ -367,22 +435,32 @@ struct sortchildren : public rewriterule<E> {
 		return secondordering(e1,e2);
 	}
 
-	virtual optional<E> apply(const E &e) const {
+	virtual std::optional<E> apply(const E &e) const {
 		if (e.isleaf()) return {};
 		auto &ch = e.children();
 		if (ch.size()<2) return {};
-		auto cmper = [this](const E &e1, const E &e2) {
-			return exprcmp(e1,e2)<0; };
-		return std::visit([&cmper,&ch](auto &&o) -> optional<E> {
+		//auto cmper = [this](const E &e1, const E &e2) {
+		//	return exprcmp(e1,e2)<0; };
+		return std::visit([this,&ch](auto &&o) -> std::optional<E> {
 				using O = std::decay_t<decltype(o)>;
-				auto tid = typeid(O);
-				auto p = ord.find(tid);
-				if (p==ord.end() || !p->second.second) return {}
+				auto p = ord.find(typeid(O));
+				if (p==ord.end() || !p->second.second) return {};
 				for(int i=1;i<ch.size();i++) {
-					if (exprcmp(ch[i-1],ch[i])>0) {
+					if (exprcmp(ch[i-1],ch[i])>0
+							&& exprcommutes(o,ch[i-1],ch[i])) {
 						std::vector<E> che = ch;
-						std::sort(che.begin(),che.end(),cmper);
-						return optional<E>{in_place,
+						// I think this is necessary to
+						// make sure all possible swaps are performed
+						for(bool swapped=true;swapped;swapped=false) {
+							for(int i=1;i<che.size();i++)
+								if (exprcmp(che[i-1],che[i])>0
+									&& exprcommutes(o,che[i-1],che[i])) {
+										std::swap(che[i-1],che[i]);
+										swapped = true;
+								}
+						}
+						//std::sort(che.begin(),che.end(),cmper);
+						return std::optional<E>{std::in_place,
 								buildexprvec(o,std::move(che))};
 					}
 				}
@@ -391,28 +469,34 @@ struct sortchildren : public rewriterule<E> {
 	}
 };
 
+template<typename... OPs, typename E>
+auto setreorderable(std::shared_ptr<sortchildren<E>> p) {
+	p->template setreorderable<OPs...>();
+	return p;
+}
+
 template<typename, typename...>
 struct maketm;
 
 template<typename E>
-struct maketm {
+struct maketm<E> {
 	static typename sortchildren<E>::typemap exec(int) {
 		return {};
 	}
 };
 
 template<typename E, typename T, typename... Ts>
-struct maketm {
+struct maketm<E,T,Ts...> {
 	static typename sortchildren<E>::typemap exec(int i) {
 		auto tm = maketm<E,Ts...>::exec(i+1);
 		tm[typeid(T)] = std::make_pair(i,false);
-		return rm;
+		return tm;
 	}
 };
 
 
 template<typename E, typename... OPS>
-ruleptr createsortrewrite() {
+auto createsortrewrite() {
 	auto tm = maketm<E,OPS...>::exec(0);
 	return std::make_shared<sortchildren<E>>(tm);
 }

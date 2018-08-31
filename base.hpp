@@ -134,7 +134,7 @@ operator==(const T &x, const exprleaf<Ts...> &y) {
 		}, y.asvariant());
 }
 
-template<typename ...OPs>
+template<typename VTT, typename ...OPs>
 struct exprnode : public std::variant<OPs...> {
 	using base_t = std::variant<OPs...>;
 	using base_t::base_t;
@@ -142,10 +142,12 @@ struct exprnode : public std::variant<OPs...> {
 	using ops_t = std::variant<OPs...>; // OPs cannot be empty
 	base_t &asvariant() { return *this; }
 	const base_t &asvariant() const { return *this; }
+
+	mutable std::optional<VTT> exprtype; // used as cache for exprtype fn
 };
 
-template<typename ... OPs, typename ...OP2s>
-constexpr bool operator==(const exprnode<OPs...> &x, const exprnode<OP2s...> &y) {
+template<typename VTT1, typename VTT2, typename ... OPs, typename ...OP2s>
+constexpr bool operator==(const exprnode<VTT1, OPs...> &x, const exprnode<VTT2, OP2s...> &y) {
 	return std::visit([](auto &&a, auto &&b) -> bool {
 		if constexpr (!std::is_same_v<std::decay_t<decltype(a)>,
 						std::decay_t<decltype(b)>>)
@@ -157,9 +159,9 @@ constexpr bool operator==(const exprnode<OPs...> &x, const exprnode<OP2s...> &y)
 		}, x.asvariant(), y.asvariant());
 }
 
-template<typename T, typename ... OPs>
+template<typename T, typename VTT, typename ... OPs>
 constexpr std::enable_if_t<!istmpl_v<exprnode,T>,bool>
-operator==(const exprnode<OPs...> &x, const T &y) {
+operator==(const exprnode<VTT, OPs...> &x, const T &y) {
 	return std::visit([&y](auto &&a) -> bool {
 			if constexpr (!std::is_same_v<std::decay_t<decltype(a)>,T>)
 				return false;
@@ -169,9 +171,9 @@ operator==(const exprnode<OPs...> &x, const T &y) {
 		}, x.asvariant());
 }
 
-template<typename T, typename ... OPs>
+template<typename T, typename VTT, typename ... OPs>
 constexpr std::enable_if_t<!istmpl_v<exprnode,T>,bool>
-operator==(const T &x, const exprnode<OPs...> &y) {
+operator==(const T &x, const exprnode<VTT, OPs...> &y) {
 	return std::visit([&x](auto &&a) -> bool {
 			if constexpr (!std::is_same_v<std::decay_t<decltype(a)>,T>)
 				return false;
@@ -209,14 +211,17 @@ using expr = gentree<repack_t<exprleaf,TV>, repack_t<exprnode,OPV>>;
 
 template<typename TV, typename OPV, typename TT=defaulttraits>
 struct exprtraits {
-	using LT = repack_t<exprleaf,TV>;
-	using NT = repack_t<exprnode,OPV>;
-
 	using Traits = TT;
 
+	using LT = repack_t<exprleaf,TV>;
 	using values_t = typename LT::values_t;
 	using valuestype_t = innerwrap_t<typetype,values_t>;
 	using anyvar_t = innerwrap_t<var,values_t>;
+
+	template<typename... OPs>
+	using myexprnode = exprnode<valuestype_t,OPs...>;
+
+	using NT = repack_t<myexprnode,OPV>;
 
 	using ops_t = typename NT::ops_t;
 
@@ -225,7 +230,9 @@ struct exprtraits {
 };
 
 template<typename TV, typename OPV, typename TT=defaulttraits>
-using expr = gentree<repack_t<exprleaf,TV>, repack_t<exprnode,OPV>,
+using expr = gentree<
+		typename exprtraits<TV,OPV,TT>::LT,
+		typename exprtraits<TV,OPV,TT>::NT,
 	 	exprtraits<TV,OPV,TT>>;
 
 template<typename E>
@@ -292,24 +299,41 @@ template<typename E, typename... Es>
 using exprunion_t = typename exprunion<E,Es...>::type;
 
 template<typename T>
-using expr1type_t = expr<std::variant<noexprT,T>,std::variant<noexprT>>;
+struct expr1typeimpl {
+	using type = expr<std::variant<noexprT,T>,std::variant<noexprT>>;
+};
+template<>
+struct expr1typeimpl<noexprT> {
+	using type = expr<std::variant<noexprT>,std::variant<noexprT>>;
+};
 template<typename OP>
-using expr1op_t = expr<std::variant<noexprT>,std::variant<noexprT,OP>>;
+struct expr1opimpl {
+	using type = expr<std::variant<noexprT>,std::variant<noexprT,OP>>;
+};
+template<>
+struct expr1opimpl<noexprT> {
+	using type = expr<std::variant<noexprT>,std::variant<noexprT>>;
+};
 
-template<typename E, typename Eret>
-E upgradeexpr(const Eret &e) {
+template<typename T>
+using expr1type_t = typename expr1typeimpl<T>::type;
+template<typename OP>
+using expr1op_t = typename expr1opimpl<OP>::type;
+
+template<typename Eret, typename E>
+Eret upgradeexpr(const E &e) {
 	if constexpr (std::is_same_v<E,Eret>) return e;
 	else {
-		using ltype = exprleaf_t<E>;
-		using ntype = exprnode_t<E>;
+		using ltype = exprleaf_t<Eret>;
+		using ntype = exprnode_t<Eret>;
 		return e.fold(
 			[](auto &&l) { // convert leafs to ltype
-				return E(upgradevariant<ltype>
+				return Eret(upgradevariant<ltype>
 							(std::forward<decltype(l)>(l).asvariant()));
 			},
 			[](auto &&n, auto &&ch) { // convert nodes to ntype
 						// pass children on unchanged (already converted)
-				return E(upgradevariant<ntype>
+				return Eret(upgradevariant<ntype>
 							(std::forward<decltype(n)>(n).asvariant()),
 						std::forward<decltype(ch)>(ch));
 			});
@@ -326,23 +350,39 @@ template<typename OP, typename E>
 auto buildexprvec(const OP &node, const std::vector<E> &ch) {
 	using rett = exprunion_t<expr1op_t<OP>,E>;
 	if constexpr (std::is_same_v<rett,E>)
-		return rett(node,ch);
+		return rett(exprnode_t<E>{std::in_place_type<OP>,node},ch);
 	else {
 		std::vector<rett> rch;
 		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
-		return rett(node,std::move(rch));
+		return rett(exprnode_t<E>{std::in_place_type<OP>,node},std::move(rch));
 	}
 }
 template<typename OP, typename E>
 auto buildexprvec(const OP &node, std::vector<E> &&ch) {
 	using rett = exprunion_t<expr1op_t<OP>,E>;
 	if constexpr (std::is_same_v<rett,E>)
-		return rett(node,std::move(ch));
+		return rett(exprnode_t<E>{std::in_place_type<OP>,node},std::move(ch));
 	else {
 		std::vector<rett> rch;
 		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
-		return rett(node,std::move(rch));
+		return rett(exprnode_t<E>{std::in_place_type<OP>,node},std::move(rch));
 	}
+}
+
+// commutes<ETT>(op,typetype<T1>,typetype<T2>)
+// whether op commutes with expressions of type T1 and T2
+//  under exprtypetraits of ETT
+template<typename ETT>
+bool commutes(...) {
+	return false; // default
+}
+
+template<typename O, typename E>
+bool exprcommutes(const O &o, const E &e1, const E &e2) {
+	return std::visit([&o](auto &&tt1, auto &&tt2) {
+		return commutes<traits<E>>(o,std::forward<decltype(tt1)>(tt1),
+							    std::forward<decltype(tt2)>(tt2));
+	}, evaltype(e1),evaltype(e2));
 }
 
 // takes an op and the args (in raw type), returns the value of the op
@@ -504,10 +544,14 @@ exprvaluetype_t<E> evaltype(const E &e) {
 					return typetype<noexprT>{};
 				else return typetype<typename L::type>{};
 			}, e.asleaf().asvariant());
-	else return std::visit([&e](auto &&n) -> rett {
+	else {
+		if (!e.asnode().exprtype.has_value())
+		e.asnode().exprtype = std::visit([&e](auto &&n) -> rett {
 				return evaltypenode(std::forward<decltype(n)>(n),
 							e.children());
 			}, e.asnode().asvariant());
+		return *(e.asnode().exprtype);
+	}
 }
 
 namespace std { 
@@ -624,9 +668,11 @@ bool isvar(const E &e) {
 }
 
 template<typename... VTs>
-using vset = std::unordered_set<std::variant<noexprT,var<VTs>...>>;
+using vsetbase = std::unordered_set<VTs...>;
+template<typename... VTs>
+using vset = vsetbase<std::variant<noexprT,var<VTs>...>>;
 template<typename E>
-using vset_t = std::unordered_set<expranyvar_t<E>>;
+using vset_t = vsetbase<expranyvar_t<E>>;
 template<typename E1, typename E2=E1>
 using vmap_t = std::unordered_map<expranyvar_t<E1>,expranyvar_t<E2>>;
 //using vkmap = std::unordered_map<var,any>;
@@ -635,7 +681,7 @@ using vmap_t = std::unordered_map<expranyvar_t<E1>,expranyvar_t<E2>>;
 // do not call!
 template<typename E, typename... VTs>
 bool isconstexpr1(const E &e,
-		const std::optional<vset<VTs...>> &vars,
+		const std::optional<vsetbase<VTs...>> &vars,
 		vset_t<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return true;
@@ -662,7 +708,7 @@ bool isconstexpr1(const E &e,
 
 // vars == no value => "all vars" (different from an empty set)
 template<typename E, typename... VTs>
-bool isconstexpr(const E &e, const std::optional<vset<VTs...>> &vars = {}) {
+bool isconstexpr(const E &e, const std::optional<vsetbase<VTs...>> &vars = {}) {
 	vset_t<E> ex;
 	return isconstexpr1(e,vars,ex);
 }
@@ -674,7 +720,7 @@ bool isconstexpr(const E &e, const var<T> &v) {
 	return isconstexpr1(e,vars,ex);
 }
 
-template<typename E>
+template<typename E, typename... VTs>
 bool isconstexprexcept(const E &e, const expranyvar_t<E> &v) {
     vset_t<E> ex{v};
     std::optional<vset_t<E>> vars{};
@@ -683,9 +729,9 @@ bool isconstexprexcept(const E &e, const expranyvar_t<E> &v) {
 	    
 
 // do not call!
-template<typename E>
+template<typename E, typename... VTs>
 bool isnonconstexpr1(const E &e,
-		const std::optional<vset_t<E>> &vars,
+		const std::optional<vsetbase<VTs...>> &vars,
 		vset_t<E> &exceptvars) {
 	if (e.isleaf()) {
 		if (isconst(e)) return false;

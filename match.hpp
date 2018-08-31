@@ -51,6 +51,20 @@ struct matchconstwrt : public matcherbase {
 	matchconstwrt(const matchconstwrt &) = default;
 	matchconstwrt(matchconstwrt &&) = default;
 
+	template<typename V>
+	void setvars(const V &v) {
+		vars.emplace(); // clear old and set to be empty
+		for(auto &vv : v)
+			std::visit([this](auto &&var) {
+					using VAR = std::decay_t<decltype(var)>;
+					if constexpr (isvartype_v<VAR>)  {
+						using VT = typename VAR::type;
+						if constexpr (ismem_v<VT,VTs...>)
+							this->vars->emplace(var);
+					}
+				},vv);
+	}
+
 	template<typename E>
 	optexprmap<E> match(const E &e) const {
 		return isconstexpr(e,vars) ? optexprmap<E>{std::in_place} : optexprmap<E>{};
@@ -80,6 +94,20 @@ struct matchnonconstwrt : public matcherbase {
 	template<typename E>
 	optexprmap<E> match(const E &e) const {
 		return isnonconstexpr(e,vars) ? optexprmap<E>{std::in_place} : optexprmap<E>{};
+	}
+
+	template<typename V>
+	void setvars(const V &v) {
+		vars.emplace(); // clear old and set to be empty
+		for(auto &vv : v)
+			std::visit([this](auto &&var) {
+					using VAR = std::decay_t<decltype(var)>;
+					if constexpr (isvartype_v<VAR>)  {
+						using VT = typename VAR::type;
+						if constexpr (ismem_v<VT,VTs...>)
+							this->vars->emplace(var);
+					}
+				},vv);
 	}
 
 };

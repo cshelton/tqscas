@@ -28,6 +28,13 @@ auto evalop(const addop &, T1 &&v1, T2 &&v2) {
 std::string symbol(const addop &) { return "+"; }
 int precedence(const addop &) { return 6; }
 
+template<typename ETT, typename T1, typename T2,
+	std::enable_if_t<hastrait<T1,scalartrait,ETT>
+				|| hastrait<T2,scalartrait,ETT>,int> = 0>
+bool commutes(const addop &, const typetype<T1> &, const typetype<T2> &) {
+	return true;
+}
+
 // subtraction:
 template<typename ETT, typename T1, typename T2,
 	int_t<decltype(std::declval<std::decay_t<T1>>() -
@@ -47,6 +54,13 @@ auto evalop(const mulop &, T1 &&v1, T2 &&v2) {
 }
 std::string symbol(const mulop &) { return "*"; }
 int precedence(const mulop &) { return 5; }
+
+template<typename ETT, typename T1, typename T2,
+	std::enable_if_t<hastrait<T1,scalartrait,ETT>
+				|| hastrait<T2,scalartrait,ETT>,int> = 0>
+bool commutes(const mulop &, const typetype<T1> &, const typetype<T2> &) {
+	return true;
+}
 
 // division:
 template<typename ETT, typename T1, typename T2,

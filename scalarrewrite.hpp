@@ -2,6 +2,7 @@
 #define SCALARREWRITE_HPP
 
 #include "scalarops.hpp"
+#include "coreops.hpp"
 #include "rewrite.hpp"
 #include "match.hpp"
 #include <algorithm>
@@ -19,22 +20,24 @@ template<typename E>
 E chainpatternmod(const E &ex) {
 	return ex.map([](const E &e) {
 			if (ischainop(e)) {
-				return std::visit([](auto &&o) {
+				auto ch = e.children();
+				return std::visit([&ch](auto &&o) {
 						using O = std::decay_t<decltype(o)>;
 						using BOP = typename O::baseopT;
-						auto ch = e.children();
-						return optional<E>
+						//return std::optional<E>{};
 						return std::optional<E>{std::in_place,
-							matchcommop<BOP,ismatcher(ch.back()),ch};
+							matchcommop<BOP,ismatcher(ch.back())>{},ch};
 					},e.asnode().asvariant());
 			} else return std::optional<E>{};
 		});
 }
 
+/*
 struct matchscalarvar : public matcherbase {
 	template<typename E>
 	optexprmap<E> match(const E &e) const {
 		return isvar(e) && 
+		*/
 
 /*
 template<typename E>
@@ -221,7 +224,7 @@ bool isodd(const expr &e) {
 
 struct simpcond : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<simpcond>(*this); }
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (!isop(e,condop) && !isop(e,condeqop)) return {};
 		auto rngset = rangeprop(e.children()[0]);
 		if (isop(e,condop)) {
@@ -236,8 +239,8 @@ struct simpcond : public rewriterule {
 					if (hasless) break;
 				}
 			}
-			if (!hasgreq) return optional<expr>{in_place,e.children()[1]};
-			if (!hasless) return optional<expr>{in_place,e.children()[2]};
+			if (!hasgreq) return std::optional<expr>{std::in_place,e.children()[1]};
+			if (!hasless) return std::optional<expr>{std::in_place,e.children()[2]};
 			return {};
 		} else {
 			bool hasnotzero=false, haszero=false;
@@ -251,8 +254,8 @@ struct simpcond : public rewriterule {
 					if (hasnotzero) break;
 				}
 			}
-			if (!hasnotzero) return optional<expr>{in_place,e.children()[1]};
-			if (!haszero) return optional<expr>{in_place,e.children()[2]};
+			if (!hasnotzero) return std::optional<expr>{std::in_place,e.children()[1]};
+			if (!haszero) return std::optional<expr>{std::in_place,e.children()[2]};
 			return {};
 		}
 	}
@@ -263,7 +266,7 @@ struct simpcond : public rewriterule {
 /*
 struct normswitch : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<normswitch>(*this); }
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (!isop(e,switchop)) return {};
 		auto &c0 = e.children()[0];
 		expr tosub = scalar(0);
@@ -281,7 +284,7 @@ struct normswitch : public rewriterule {
 		std::vector<expr> newch(e.children());
 		for (int i=0;i<newch.size();i+=2)
 			newch[i] = newch[i] - tosub;
-		return optional<expr>{in_place,e.asnode(),newch};
+		return std::optional<expr>{std::in_place,e.asnode(),newch};
 	}
 };
 
@@ -297,7 +300,7 @@ struct liftswitch : public rewriterule {
 		return {e.asnode(),newch};
 	}
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (e.isleaf() || e.asnode()==switchop) return {};
 		auto &ch = e.children();
 		for(int i=0;i<ch.size();i++)
@@ -308,7 +311,7 @@ struct liftswitch : public rewriterule {
 					newch.emplace_back(sch[j]);
 					newch.emplace_back(replacech(e,i,sch[j+1]));
 				}
-				return optional<expr>{in_place,switchop,newch};
+				return std::optional<expr>{std::in_place,switchop,newch};
 			}
 		return {};
 	}
@@ -316,13 +319,13 @@ struct liftswitch : public rewriterule {
 
 struct squeezeswitch : public rewriterule {
 	virtual ruleptr clone() const { return std::make_shared<squeezeswitch>(*this); }
-	virtual optional<expr> apply(expr &e) const {
+	virtual std::optional<expr> apply(expr &e) const {
 		if (!isop(e,switchop)) return {};
 		auto &ch = e.children();
 		if (ch.size()<5) {
 			if (ch[1]==ch[3]) // technically, this might expand
 				// the domain (if ch[0] is undefined in places)
-				return optional<expr>{in_place,ch[1]};
+				return std::optional<expr>{std::in_place,ch[1]};
 			return {};
 		}
 		for(int i=2;i<ch.size()-1;i+=2)
@@ -331,7 +334,7 @@ struct squeezeswitch : public rewriterule {
 				newch.reserve(ch.size()-2);
 				for(int j=0;j<i;j++) newch.emplace_back(ch[j]);
 				for(int j=i+2;j<ch.size();j++) newch.emplace_back(ch[j]);
-				return optional<expr>{in_place,e.asnode(),newch};
+				return std::optional<expr>{std::in_place,e.asnode(),newch};
 			}
 		return {};
 	}
@@ -356,7 +359,7 @@ struct mergeswitch : public rewriterule {
 		return true;
 	}
 
-	virtual optional<expr> apply(expr &e) const {
+	virtual std::optional<expr> apply(expr &e) const {
 		if (!ismergeable(e,e,false)) return {};
 		auto &ch = e.children();
 		int mchi = -1;
@@ -387,18 +390,18 @@ struct mergeswitch : public rewriterule {
 		}
 		for(int i=mchi+1;i<ch.size();i++)
 			newch.emplace_back(ch[i]);
-		return optional<expr>{in_place,e.asnode(),newch};
+		return std::optional<expr>{std::in_place,e.asnode(),newch};
 	}
 };
 */
 
 template<typename E>
-ruleptr SRR(const E &s, const E &p) {
+ruleptr<E> SRR(const E &s, const E &p) {
 	return SR(chainpatternmod(s),p);
 }
 
 template<typename E, typename F>
-ruleptr SRR(const E &s, const E &p, F &&f) {
+ruleptr<E> SRR(const E &s, const E &p, F &&f) {
 	return SR(chainpatternmod(s),p,std::forward<F>(f));
 }
 
@@ -412,18 +415,18 @@ struct bigopexpand : public rewriterule {
 
 	bigopexpand(int n, op bop, op cop, T i) : nterms(n), bigop(bop), chainop(cop), id(i) {}
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (!isop(e,bigop)) return {};
 		auto &ch = e.children();
 		if (!isconst(ch[2]) || !isconst(ch[3])) return {};
 		scalarreal x0 = getconst<scalarreal>(ch[2]);
 		scalarreal x1 = getconst<scalarreal>(ch[3]);
-		if (x1 < x0) return optional<expr>{in_place,scalar(id)};
+		if (x1 < x0) return std::optional<expr>{std::in_place,scalar(id)};
 		if (x1 >= x0+nterms) return {};
 		std::vector<expr> terms;
 		for(scalarreal x=x0;x<=x1;x+=1)
 			terms.emplace_back(substitute(ch[1],ch[0],scalar(x)));
-		return optional<expr>{in_place,chainop,terms};
+		return std::optional<expr>{std::in_place,chainop,terms};
 	}
 };
 */
@@ -450,7 +453,7 @@ struct tableintegrate : public rewriterule {
 	tableintegrate(std::vector<std::pair<expr,expr>> ader)
 			: antiderivs(std::move(ader)) {}
 
-	virtual optional<expr> apply(const expr &e) const {
+	virtual std::optional<expr> apply(const expr &e) const {
 		if (!isop(e,integrateop)) return {};
 		auto &ch = e.children();
 		expr newint = substitute(ch[1],ch[0],x_);
@@ -460,7 +463,7 @@ struct tableintegrate : public rewriterule {
 				expr ader = substitute(ad.second,*res);
 				expr ret = substitute(ader,x_,ch[3])
 					- substitute(ader,x_,ch[2]);
-				return optional<expr>{in_place,std::move(ret)};
+				return std::optional<expr>{std::in_place,std::move(ret)};
 			}
 		}
 		return {};
@@ -546,6 +549,7 @@ expr psum(const expr &p, const expr &n) {
 // TODO:  will need to be separated out into general and specific to scalars
 //std::vector<ruleptr>
 
+/*
 template<typename E>
 ruleset basicscalarrules
 	{{
@@ -714,4 +718,5 @@ ruleset scalarruleset = basicscalarrules
 			+ integralscalarrules
 			+ sumprodscalarrules
 			+ numericevalrules;
+			*/
 #endif
