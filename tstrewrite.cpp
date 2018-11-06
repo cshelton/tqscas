@@ -1,4 +1,4 @@
-#include "scalarrewrite.hpp"
+//#include "scalarrewrite.hpp"
 #include <iostream>
 #include "basicrules.hpp"
 #include "sugar.hpp"
@@ -36,18 +36,23 @@ void checkrewrite(const E &e, const E2 &newe) {
 }
 
 int main(int argc, char **argv) {
-	auto x = newvar<double>("x");
-	auto y = newvar<double>("y");
-	auto z = newvar<double>("z");
+	//auto x = newvar<double>("x");
+	//auto y = newvar<double>("y");
+	//auto z = newvar<double>("z");
+	auto x = scalarvar<double>("x");
+	auto y = scalarvar<double>("y");
+	auto z = scalarvar<double>("z");
 
 
-	checkrewrite(0.5*x*x*x + 0.25*x*x, 0.25*pow(x,2) + 0.5*pow(x,3));
-	checkrewrite(x+x,2*x);
+	checkrewrite(x+x, 2*x);
+	checkrewrite(0.5+x+x, 0.5+2*x);
+	checkrewrite(0.5*x*1.0*x*x + 0.5*x*0.5*x, 0.25*pow(x,2) + 0.5*pow(x,3));
 	checkrewrite(x+x+x,3*x);
 	checkrewrite(x+(x+x)+(x+y),y+4*x);
 	checkrewrite(x*x,pow(x,2));
 	checkrewrite(x*x*x,pow(x,3));
 	checkrewrite(x*(x*x)*(x*y),y*pow(x,4));
+/*
 	checkrewrite(pow(x,5)*(x*pow(x,2))*(x*y),y*pow(x,9));
 	checkrewrite(log(x*y*(z+4*y)), log(x) + log(y) + log(z+4*y));
 	checkrewrite(pow(pow(x,z),y),pow(x,y*z));
@@ -69,6 +74,7 @@ int main(int argc, char **argv) {
 	checkrewrite(abs(-x*x),pow(x,2));
 	checkrewrite(abs(log(1+x*x)),log(1+pow(x,2)));
 	checkrewrite(abs(log(0.5+x*x)),abs(log(0.5+pow(x,2))));
+*/
 
 /*
 	checkrewrite(sum(x,x,1,10),newconst(55));

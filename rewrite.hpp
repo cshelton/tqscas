@@ -155,9 +155,11 @@ struct optochain : public rewriterule<E> {
 		return std::make_shared<optochain<E,COP>>(*this);
 	}
 	virtual std::optional<E> apply(const E &e) const {
-		if (isop<typename COP::baseopT>(e))
+		if constexpr (!varismem_v<COP,exprop_t<E>>)
+			return {};
+		else if (isop<typename COP::baseopT>(e))
 			return std::optional<E>{std::in_place,COP{},e.children()};
-		return {};
+		else return {};
 	}
 };
 
@@ -196,70 +198,75 @@ struct collapsechain : public rewriterule<E> {
 	}
 };
 
-template<typename E>
+template<typename E, typename E1, typename E2>
 struct matchrewrite : public rewriterule<E> {
-	E search, replace;
+	E1 search;
+	E2 replace;
 
-	template<typename E1, typename E2>
-	matchrewrite(E1 &&pattern, E2 &&newexp)
-			: search(upgradeexpr<E>(std::forward<E1>(pattern))),
-			  replace(upgradeexpr<E>(std::forward<E2>(newexp))) {}
+	matchrewrite(E1 pattern, E2 newexp)
+			: search(std::move(pattern)),
+			  replace(std::move(newexp)) {}
 	
-	virtual ruleptr<E> clone() const { return std::make_shared<matchrewrite<E>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<matchrewrite<E,E1,E2>>(*this); }
 
 	virtual std::optional<E> apply(const E &e) const {
 		auto m = match(e,search);
-		if (m) return substitute(replacelocal(replace),*m);
-		else return {};
+		if (m) {
+			auto ret = substitute2(replacelocal(replace),*m);
+			if (ret) return std::optional<E>{*ret};
+		}
+		return {};
 	}
 
 	virtual void setvars(const vset_t<E> &v) {
-		std::optional<E> nsearch = search.mapmaybe([&v](const E &e)
-			    		-> std::optional<E> {
-			if (!e.isleaf()) return std::optional<E>{};
+		std::optional<E1> nsearch = search.mapmaybe([&v](const E1 &e)
+			    		-> std::optional<E1> {
+			if (!e.isleaf()) return std::optional<E1>{};
 			else return std::visit([&v](auto &&n) {
 					using N = std::decay_t<decltype(n)>;
-					if constexpr (std::is_same_v<N,matchconstwrt>
-							|| std::is_same_v<N,matchnonconstwrt>) {
+					if constexpr (istmpl_v<matchconstwrt,N>
+							|| istmpl_v<matchnonconstwrt,N>) {
 						auto newn = n;
 						newn.setvars(v);
-						return std::optional<E>{std::in_place,newn};
+						return std::optional<E1>{newn};
 					}
-					return std::optional<E>{};
+					return std::optional<E1>{};
 				},e.asnode().asvariant());
 			});
 		if (nsearch) search = *nsearch;
 	}
 };
 
-template<typename E, typename F>
-struct matchrewritecond : public matchrewrite<E> {
+template<typename E, typename E1, typename E2, typename F>
+struct matchrewritecond : public matchrewrite<E,E1,E2> {
 	F condition;
 
-	template<typename E1, typename E2>
-	matchrewritecond(E1 &&pattern, E2 &&newexp, F c)
-			: matchrewrite<E>(std::forward<E1>(pattern),
-					std::forward<E2>(newexp)),
-				  condition(std::move(c)) {}
+	matchrewritecond(E1 pattern, E2 newexp, F c)
+			: matchrewrite<E,E1,E2>(std::move(pattern),
+					std::move(newexp)), condition(std::move(c)) {}
 
-	virtual ruleptr<E> clone() const { return std::make_shared<matchrewritecond<E,F>>(*this); }
+	virtual ruleptr<E> clone() const { return std::make_shared<matchrewritecond<E,E1,E2,F>>(*this); }
 
 	virtual std::optional<E> apply(const E &e) const {
 		auto m = match(e,this->search);
-		if (m && condition(*m)) return substitute(this->replace,*m);
-		else return {};
+		if (m && condition(*m)) {
+			auto ret = substitute2(replacelocal(this->replace),*m);
+			if (ret) return std::optional<E>{*ret};
+		}
+		return {};
 	}
 };
 
-template<typename E>
-ruleptr<E> SR(const E &pattern, const E &newexp) {
-	return std::make_shared<matchrewrite<E>>(pattern,newexp);
+template<typename E, typename E1, typename E2>
+auto SR(E1 pattern, E2 newexp) {
+	return std::make_shared<matchrewrite<E,E1,E2>>(std::move(pattern),
+			std::move(newexp));
 }
 
-template<typename E, typename F>
-ruleptr<E> SR(const E &pattern, const E &newexp, F condition) {
-	return std::make_shared<matchrewritecond<E,F>>(pattern,newexp,
-			std::move(condition));
+template<typename E, typename E1, typename E2, typename F>
+auto SR(E1 pattern, E2 newexp, F condition) {
+	return std::make_shared<matchrewritecond<E,E1,E2,F>>(
+			std::move(pattern), std::move(newexp), std::move(condition));
 }
 
 template<typename E>
@@ -288,6 +295,7 @@ struct trivialconsteval : public rewriterule<E> {
 	}
 };
 
+// to evaluate two constants within the chain and combine them
 template<typename E,typename COP>
 struct constchaineval : public rewriterule<E> {
 	virtual ruleptr<E> clone() const { return std::make_shared<constchaineval<E,COP>>(*this); }
@@ -298,14 +306,17 @@ struct constchaineval : public rewriterule<E> {
 		else {
 			if (!isop<COP>(e)) return {};
 			auto &ch = e.children();
-			int ai=-1,bi=-1;
-			for(int i=0;i<ch.size();i++)
+			int ai=-1,bi=-1; // indices of the two constants
+			for(int i=0;i<ch.size();i++) {
+				if (ai!=-1 && !exprcommutes(COP{},ch[ai],ch[i]))
+					ai = -1; // cannot push it together
 				if (isconst(ch[i])) {
 					if (ai>=0) {
 						bi=i;
 						break;
 					} else ai = i;
 				}
+			}
 			if (bi==-1) return {};
 			auto newch(ch);
 			newch[ai] = newconstfromeval2<E>
@@ -448,18 +459,28 @@ struct sortchildren : public rewriterule<E> {
 				for(int i=1;i<ch.size();i++) {
 					if (exprcmp(ch[i-1],ch[i])>0
 							&& exprcommutes(o,ch[i-1],ch[i])) {
+						/*
 						std::vector<E> che = ch;
-						// I think this is necessary to
-						// make sure all possible swaps are performed
 						for(bool swapped=true;swapped;swapped=false) {
 							for(int i=1;i<che.size();i++)
 								if (exprcmp(che[i-1],che[i])>0
-									&& exprcommutes(o,che[i-1],che[i])) {
+								  && exprcommutes(o,che[i-1],che[i])) {
 										std::swap(che[i-1],che[i]);
 										swapped = true;
 								}
 						}
+						*/
 						//std::sort(che.begin(),che.end(),cmper);
+						std::vector<int> idx(ch.size());
+						std::iota(idx.begin(),idx.end(),0);
+						std::sort(idx.begin(),idx.end(),
+							[&ch,&o,this](std::size_t i, std::size_t j) {
+									if (exprcommutes(o,ch[i],ch[j]))
+										return exprcmp(ch[i],ch[j])<0;
+									else return i<j;
+								});
+						std::vector<E> che;
+						for(auto i : idx) che.emplace_back(ch[i]);
 						return std::optional<E>{std::in_place,
 								buildexprvec(o,std::move(che))};
 					}

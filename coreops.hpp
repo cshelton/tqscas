@@ -45,6 +45,12 @@ bool ischainop(const E &e) {
 			},e.asnode().asvariant());
 }
 
+template<typename ETT, typename BASEOP, bool leftassoc, typename T1, typename T2>
+bool commutes(const binarychainop<BASEOP,leftassoc> &,
+		const typetype<T1> &t1, const typetype<T2> &t2) {
+	return commutes<ETT>(BASEOP{},t1,t2);
+}
+
 template<typename BASEOP, bool leftassoc>
 constexpr int precedence(binarychainop<BASEOP,leftassoc>) {
 	return precedence(BASEOP());

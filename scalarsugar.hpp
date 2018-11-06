@@ -4,6 +4,17 @@
 #include "scalarops.hpp"
 #include "sugarmacros.hpp"
 
+using scalarexpr = expr_t<
+		std::variant<noexprT,int,double>,
+		std::variant<noexprT,addop,mulop,binarychainop<addop>,
+			binarychainop<mulop>, subop, divop, powop, logop, absop,
+			derivop, evalatop>>;
+
+template<typename T>
+scalarexpr scalarvar(const std::string &name) {
+	return newvar<T,scalarexpr>(name);
+}
+
 // add overloads to allow natural syntax for expr building:
 ALLOWEXPRFROM1(absop,abs)
 

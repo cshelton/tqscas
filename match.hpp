@@ -316,7 +316,10 @@ struct matchcommop : public matcherbase {
 		if (ech.size()<matchch.size()) return {};
 		if (!withremainder && ech.size()!=matchch.size()) return {};
 		if (ech.size()<2) return matchwithrem(op,ech,matchch);
-		pickn<E> p(ech,matchch.size()-1);
+		auto p = picker(ech,matchch.size()-1,
+				[](auto &e1, auto &e2) {
+					return exprcommutes(OP{},e1,e2);
+					});
 		do {
 			auto ret = ::matchwithrem(op,p.x,matchch);
 			if (ret) return ret;

@@ -281,10 +281,20 @@ using variantunion_t = sortvariant_t<typename variantunion<V1,V2>::type>;
 //using variantunion_t = typename variantunion<V1,V2>::type;
 
 // variant "upgrade" to superset
-
 template<typename Vsuper, typename Vsub>
 Vsuper upgradevariant(Vsub &&v) {
 	return std::visit([](auto &&x) -> Vsuper { return x; },v);
+}
+
+// variant "regrade" (?) to Vret, if possible
+template<typename Vret, typename Vinit>
+std::optional<Vret> regradevariant(Vinit &&v) {
+	return std::visit([](auto &&x) -> std::optional<Vret> {
+			using X = std::decay_t<decltype(x)>;
+			if constexpr (varismem_v<X,Vret>)
+				return std::optional<Vret>{x};
+			else return {};
+		},v);
 }
 
 //--------------

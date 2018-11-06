@@ -102,6 +102,8 @@ struct exprleaf : public std::variant<noexprT, constval<Ts>..., var<Ts>...> {
 	using base_t = std::variant<noexprT, constval<Ts>..., var<Ts>...>;
 	using base_t::base_t;
 
+	exprleaf(base_t b) : base_t(std::move(b)) {}
+
 	using values_t = std::variant<Ts...>; // Ts cannot be empty!
 
 	base_t &asvariant() { return *this; }
@@ -138,6 +140,8 @@ template<typename VTT, typename ...OPs>
 struct exprnode : public std::variant<OPs...> {
 	using base_t = std::variant<OPs...>;
 	using base_t::base_t;
+
+	exprnode(base_t b) : base_t(std::move(b)) {}
 
 	using ops_t = std::variant<OPs...>; // OPs cannot be empty
 	base_t &asvariant() { return *this; }
@@ -320,6 +324,11 @@ using expr1type_t = typename expr1typeimpl<T>::type;
 template<typename OP>
 using expr1op_t = typename expr1opimpl<OP>::type;
 
+// VT is a variant listing the types for the expr
+// VOP is a variant listing the ops for the expr
+template<typename VT, typename VOP>
+using expr_t = expr<sortvariant_t<VT>,sortvariant_t<VOP>>;
+
 template<typename Eret, typename E>
 Eret upgradeexpr(const E &e) {
 	if constexpr (std::is_same_v<E,Eret>) return e;
@@ -340,6 +349,37 @@ Eret upgradeexpr(const E &e) {
 	}
 }
 
+template<typename Eret, typename E>
+std::optional<Eret> regradeexpr(const E &e) {
+	if constexpr (std::is_same_v<E,Eret>) return {std::in_place,e};
+	else {
+		using ltype = exprleaf_t<Eret>;
+		using ntype = exprnode_t<Eret>;
+		bool worked = true;
+		auto ret = e.fold( // inefficient (should abort once worked=false)
+			[&worked](auto &&l) { // convert leafs to ltype
+				if (worked) {
+					auto ne = regradevariant<ltype>(l.asvariant());
+					if (ne) return Eret(*ne);
+				}
+				worked = false;
+				return Eret(noexprT{});
+			},
+			[&worked](auto &&n, auto &&ch) { // convert nodes to ntype
+						// pass children on unchanged (already converted)
+				if (worked) {
+					auto ne = regradevariant<ntype>(n.asvariant());
+					if (ne) return Eret(*ne,
+								std::forward<decltype(ch)>(ch));
+				}
+				worked = false;
+				return Eret(noexprT{});
+			});
+		if (worked) return std::optional<Eret>{ret};
+		else return {};
+	}
+}
+
 template<typename OP, typename... Es>
 auto buildexpr(const OP &node, Es &&...subexprs) {
 	using rett = exprunion_t<expr1op_t<OP>,std::decay_t<Es>...>;
@@ -354,7 +394,7 @@ auto buildexprvec(const OP &node, const std::vector<E> &ch) {
 	else {
 		std::vector<rett> rch;
 		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
-		return rett(exprnode_t<E>{std::in_place_type<OP>,node},std::move(rch));
+		return rett(exprnode_t<rett>{std::in_place_type<OP>,node},std::move(rch));
 	}
 }
 template<typename OP, typename E>
@@ -365,7 +405,7 @@ auto buildexprvec(const OP &node, std::vector<E> &&ch) {
 	else {
 		std::vector<rett> rch;
 		for(auto &c : ch) rch.emplace_back(upgradeexpr<rett>(c));
-		return rett(exprnode_t<E>{std::in_place_type<OP>,node},std::move(rch));
+		return rett(exprnode_t<rett>{std::in_place_type<OP>,node},std::move(rch));
 	}
 }
 
@@ -546,10 +586,10 @@ exprvaluetype_t<E> evaltype(const E &e) {
 			}, e.asleaf().asvariant());
 	else {
 		if (!e.asnode().exprtype.has_value())
-		e.asnode().exprtype = std::visit([&e](auto &&n) -> rett {
-				return evaltypenode(std::forward<decltype(n)>(n),
+			e.asnode().exprtype = std::visit([&e](auto &&n) -> rett {
+					return evaltypenode(std::forward<decltype(n)>(n),
 							e.children());
-			}, e.asnode().asvariant());
+				}, e.asnode().asvariant());
 		return *(e.asnode().exprtype);
 	}
 }
@@ -592,20 +632,28 @@ namespace std {
 
 template<typename T, typename E=expr1type_t<T>>
 E newvar(const std::string &name) {
-	return E{var<T>{varinfo<T>(name)}};
+	if constexpr (std::is_same_v<T,noexprT>)
+		return E{var<T>{}};
+	else return E{var<T>{varinfo<T>(name)}};
 }
 
 template<typename T, typename E=expr1type_t<T>>
 E newvar() {
-	return E{var<T>{varinfo<T>()}};
+	if constexpr (std::is_same_v<T,noexprT>)
+		return E{var<T>{}};
+	else return E{var<T>{varinfo<T>()}};
 }
 
 template<typename E> // if v is not an expression consisting of a leaf
-		// of just a variable, the behavior is *undefined*
+		// of just a variable, returns noexprT{}
 E newvarsametype(const E &v) {
-	return std::visit([](auto &&v) {
-			return E{std::decay_t<decltype(v)>{}}; },
-			v.asleaf().asvariant());
+	if (!v.isleaf()) return E{noexprT{}};
+	return std::visit([](auto &&v) -> E {
+			using V = std::decay_t<decltype(v)>;
+			if constexpr (isvartype_v<V>)
+				return newvar<typename V::type,E>();
+			else return E{noexprT{}};
+		},v.asleaf().asvariant());
 }
 
 template<typename T, typename E=expr1type_t<std::decay_t<T>>>
@@ -625,6 +673,7 @@ E newconstfromeval(TV &&v) {
 
 template<typename E>
 expranyvar_t<E> getvar(const E &e) {
+	if (!e.isleaf()) return var<noexprT>{};
 	return std::visit([](auto &&a) -> expranyvar_t<E> {
 			if constexpr (isvartype_v<std::decay_t<decltype(a)>>)
 					return a;
@@ -634,7 +683,7 @@ expranyvar_t<E> getvar(const E &e) {
 }
 
 template<typename OP, typename E>
-bool isop(const E &e) {
+constexpr bool isop(const E &e) {
 	return !e.isleaf() && std::holds_alternative<OP>(e.asnode());
 }
 

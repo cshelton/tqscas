@@ -29,8 +29,13 @@ std::string symbol(const addop &) { return "+"; }
 int precedence(const addop &) { return 6; }
 
 template<typename ETT, typename T1, typename T2,
-	std::enable_if_t<hastrait<T1,scalartrait,ETT>
-				|| hastrait<T2,scalartrait,ETT>,int> = 0>
+	std::enable_if_t<(hastrait<T1,scalartrait,ETT>
+				   || hastrait<T1,vectortrait,ETT>
+				   || hastrait<T1,matrixtrait,ETT>)
+				&& (hastrait<T2,scalartrait,ETT>
+				   || hastrait<T2,vectortrait,ETT>
+				   || hastrait<T2,matrixtrait,ETT>)
+				,int> = 0>
 bool commutes(const addop &, const typetype<T1> &, const typetype<T2> &) {
 	return true;
 }
@@ -56,8 +61,17 @@ std::string symbol(const mulop &) { return "*"; }
 int precedence(const mulop &) { return 5; }
 
 template<typename ETT, typename T1, typename T2,
-	std::enable_if_t<hastrait<T1,scalartrait,ETT>
-				|| hastrait<T2,scalartrait,ETT>,int> = 0>
+	std::enable_if_t<
+		(hastrait<T1,scalartrait,ETT>
+		 && (hastrait<T2,scalartrait,ETT> ||
+		     hastrait<T2,vectortrait,ETT> ||
+		     hastrait<T2,matrixtrait,ETT>))
+		||
+		(hastrait<T2,scalartrait,ETT>
+		 && (hastrait<T1,scalartrait,ETT> ||
+		     hastrait<T1,vectortrait,ETT> ||
+		     hastrait<T1,matrixtrait,ETT>)),
+		int> = 0>
 bool commutes(const mulop &, const typetype<T1> &, const typetype<T2> &) {
 	return true;
 }

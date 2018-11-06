@@ -167,12 +167,60 @@ auto substitute(const E1 &e, const exprmap<E2> &st) {
 	}
 }
 
+// try to keep expression as E2, if not possible return nothing
+template<typename E1, typename E2>
+std::optional<E2> substitute2(const E1 &e, const exprmap<E2> &st) {
+	if (st.empty()) return regradeexpr<E2>(e);
+	if constexpr (std::is_same_v<E1,E2>)
+		return std::optional<E2>{
+				e.map([&st](const E1 &ex) {
+				if (isplaceholder(ex)) {
+					int n = std::get<constval<placeholder>>(ex.asleaf()).v.num;
+					auto l = st.find(n);
+					if (l!=st.end())
+						return std::optional<E2>{l->second};
+				}
+				return std::optional<E2>{};
+			})
+		};
+	else {
+		using ltype = exprleaf_t<E2>;
+		using ntype = exprnode_t<E2>;
+		bool worked = true; // below is inefficient (see regradeexpr)
+		auto ret = e.fold([&st,&worked](const auto &l) -> E2 {
+					if (worked) {
+						if (isplaceholder(l)) {
+							int n = std::get<constval<placeholder>>(l).v.num;
+							auto loc = st.find(n);
+							if (loc!=st.end())
+								return E2{loc->second};
+						}
+						auto r = regradevariant<typename ltype::base_t>(l.asvariant());
+						if (r) return E2{ltype{*r}};
+					}
+					worked = false;
+					return E2(noexprT{});
+				},
+				[&worked](auto &&n, auto &&ch) {
+					if (worked) {
+						auto r = regradevariant<typename ntype::base_t>(n.asvariant());
+						if (r) return E2{ntype{*r},
+								std::forward<decltype(ch)>(ch)};
+					}
+					worked = false;
+					return E2(noexprT{});
+				});
+		if (worked) return std::optional<E2>{ret};
+		else return {};
+	}
+}
+
 //--------------------
 
 template<typename E>
 E replacelocal(const E &e) {
 	return e.map([](const E &ex) {
-			if (!isscope(ex) || isplaceholder(ex.children()[0]))
+			if (!isscopeop(ex) || isplaceholder(ex.children()[0]))
 				return std::optional<E>{};
 			else return std::optional<E>{substitute(ex,
 						ex.children()[0],
