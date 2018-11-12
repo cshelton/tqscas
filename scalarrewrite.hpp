@@ -747,6 +747,9 @@ ruleset derivscalarrules{{
   SRR( deriv(log(E1_),V2_,V3_)            ,
 		                          deriv(P1_,P2_,P3_) / evalat(P1_,P2_,P3_) ),
 
+  SRR( deriv(abs(E1_),V2_,V3_)            ,
+		  deriv(P1_,P2_,P3_)*ifthenelse(P1_,scalar(-1),scalar(1)) ),
+
   SRR( deriv(expr{heavisideop,E1_},V2_,V3_),
 				 evalat(expr{diracop,P1_},P2_,P3_)*deriv(P1_,P2_,P3_) ),
 
@@ -774,6 +777,17 @@ ruleset integralscalarrules {{
 
   SRR( integrate(E1_*E2_,E3_,E4_,E5_), integrate(P1_,P3_,P4_,P5_) * P2_ ,
   		[](const exprmap &m) { return isconstexpr(m.at(2),getvar(m.at(3))); } ),
+
+  SRR( integrate(ifthenelse(E1_+E2_*E3_,E4_,E5_),E3_,E6_,E7_) ,
+		  ifthenelse(-P1_/P2_ - P6_,
+			  		integrate(P5_,P3_,P6_,P7_),
+					ifthenelse(-P1_/P2_ - P7_,
+						integrate(P5_,P3_,P6_,-P1_/P2_)
+						+ integrate(P4_,P3_,-P1_/P2_,P7_),
+						integrate(P4_,P3_,P6_,P7_))),
+		  [](const exprmap &m) { 
+		  	return isconstexpr(m.at(1),getvar(m.at(3)))
+					&& isconstexpr(m.at(2),getvar(m.at(3))); } ),
 
   toptr<tableintegrate>(stdantiderivs),
 

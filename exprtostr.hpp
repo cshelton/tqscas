@@ -148,7 +148,7 @@ std::string draw(const expr &e) {
 	auto lines = e.fold([](const leaf &l) {
 			if (l.type() == typeid(var))
 				return retT(MYany_cast<var>(l)->name+"\n");
-			else return retT(tostring(l)+"\n");
+			else return retT(tostring(MYany_cast<constval>(l).v)+"\n");
 			},
 			[](const op &o, const std::vector<retT> &ch) {
 				if (ch.empty()) return retT(o->treename);

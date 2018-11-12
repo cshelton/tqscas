@@ -17,7 +17,7 @@ struct scalarreal : boost::operators<scalarreal> {
 
 	variant<rtype,double,eulerconst,piconst> v;
 
-	scalarreal(double val) : v(val) {}
+	scalarreal(double val=0.0) : v(val) {}
 	explicit scalarreal(eulerconst ec) : v(ec) {}
 	explicit scalarreal(piconst pc) : v(pc) {}
 	explicit scalarreal(rtype rt) : v(std::move(rt)) {}
